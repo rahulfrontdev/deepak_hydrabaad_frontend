@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { LayoutDashboard } from 'lucide-react'
 import { useCart } from '../../context/CartContext.jsx'
@@ -32,6 +33,11 @@ const IconSearch = () => (
   </svg>
 )
 
+/** Show compact bar after this scroll distance (px). */
+const SCROLL_SECONDARY_SHOW_PX = 100
+/** Hide slightly earlier when scrolling back up (reduces flicker). */
+const SCROLL_SECONDARY_HIDE_PX = 60
+
 const Header = () => {
   const navigate = useNavigate()
   const location = useLocation()
@@ -52,18 +58,44 @@ const Header = () => {
   }
 
   const { cartCount } = useCart()
-  const { isAdmin, user, logout } = useAuth()
+  const { isAdmin } = useAuth()
   const [showScrollNav, setShowScrollNav] = useState(false)
 
   useEffect(() => {
+    const getScrollTop = () => {
+      const main = document.querySelector('.app-layout__main')
+      return Math.max(
+        window.scrollY ?? 0,
+        window.pageYOffset ?? 0,
+        document.documentElement?.scrollTop ?? 0,
+        document.body?.scrollTop ?? 0,
+        main?.scrollTop ?? 0
+      )
+    }
+
     const onScroll = () => {
-      setShowScrollNav(window.scrollY > 200)
+      const y = getScrollTop()
+      setShowScrollNav((prev) => {
+        if (prev) return y > SCROLL_SECONDARY_HIDE_PX
+        return y > SCROLL_SECONDARY_SHOW_PX
+      })
     }
 
     onScroll()
     window.addEventListener('scroll', onScroll, { passive: true })
-    return () => window.removeEventListener('scroll', onScroll)
-  }, [])
+    document.addEventListener('scroll', onScroll, { passive: true, capture: true })
+    window.addEventListener('resize', onScroll)
+
+    const mainEl = document.querySelector('.app-layout__main')
+    mainEl?.addEventListener('scroll', onScroll, { passive: true })
+
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      document.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', onScroll)
+      mainEl?.removeEventListener('scroll', onScroll)
+    }
+  }, [location.pathname])
 
   const onSearch = (e) => {
     e.preventDefault()
@@ -147,80 +179,87 @@ const Header = () => {
         </div>
       </header>
 
-
-      <nav
-        className={`fixed top-0 left-0 z-50 w-full bg-[#74BFBF] shadow-sm backdrop-blur text-black transition-all duration-200 ${showScrollNav
-          ? "translate-y-0 opacity-100"
-          : "-translate-y-full opacity-0 pointer-events-none"
-          }`}
-        aria-label="Quick categories"
-      >
-        <div className="mx-auto grid w-full max-w-[1200px] grid-cols-[auto_1fr_auto] items-center gap-3 px-4 py-2">
-          <Link to="/" className="flex items-center shrink-0">
-            <img
-              src="/Logo2.png"
-              alt="Store Logo"
-              className="h-20 w-auto object-contain"
-            />
-          </Link>
-
-          <div className="relative flex items-center justify-center gap-4 overflow-visible">
-
-            <Link to="/" className="whitespace-nowrap px-2 py-1 text-sm text-slate-900">
-              Home
-            </Link>
-
-            <Link to="/products" className="whitespace-nowrap px-2 py-1 text-sm text-slate-900">
-              Products
-            </Link>
-
-            {/* 🔥 Jewellery with Dropdown */}
-            <div className="relative group">
-              <span className="cursor-pointer whitespace-nowrap px-2 py-1 text-sm text-slate-900">
-                Jewellery ▾
-              </span>
-
-              {/* Dropdown */}
-              <div className="absolute left-0 top-full z-[60] mt-1 hidden min-w-[150px] bg-white shadow-lg group-hover:block">
-                <Link to="/category/jewellery/rings" className="block px-4 py-2 text-sm hover:bg-gray-100">
-                  Rings
-                </Link>
-                <Link to="/category/jewellery/necklace" className="block px-4 py-2 text-sm hover:bg-gray-100">
-                  Necklace
-                </Link>
-                <Link to="/category/jewellery/earrings" className="block px-4 py-2 text-sm hover:bg-gray-100">
-                  Earrings
-                </Link>
-              </div>
+      {/* Portal + z-index from .scroll-primary-nav (5000) so this bar is never under .site-header (1100). */}
+      {createPortal(
+        <nav
+          className={`scroll-primary-nav${showScrollNav ? ' scroll-primary-nav--visible' : ''}`}
+          aria-label="Quick navigation"
+        >
+          <div className="scroll-primary-nav__inner">
+            <div className="scroll-primary-nav__brand">
+              <Link to="/" aria-label="Home">
+                <img src="/Logo2.png" alt="" className="scroll-primary-nav__logo" />
+              </Link>
             </div>
 
-            <Link to="/category/bags" className="whitespace-nowrap px-2 py-1 text-sm text-slate-900">
-              Bags
-            </Link>
+            <div className="scroll-primary-nav__links">
+              <Link to="/" className="whitespace-nowrap px-2 py-1 text-sm text-slate-900 hover:opacity-90">
+                Home
+              </Link>
+              <Link to="/products" className="whitespace-nowrap px-2 py-1 text-sm text-slate-900 hover:opacity-90">
+                Products
+              </Link>
 
-            <Link to="/category/fashion" className="whitespace-nowrap px-2 py-1 text-sm text-slate-900">
-              Accessories
-            </Link>
+              <div className="relative group">
+                <span className="cursor-pointer whitespace-nowrap px-2 py-1 text-sm text-slate-900 hover:opacity-90">
+                  Jewellery ▾
+                </span>
+                <div
+                  className="absolute left-0 top-full z-[1] mt-1 hidden min-w-[150px] bg-white shadow-lg group-hover:block"
+                  style={{ borderTop: '2px solid #74BFBF' }}
+                >
+                  <Link to="/category/jewellery/rings" className="block px-4 py-2 text-sm text-slate-800 hover:bg-gray-100">
+                    Rings
+                  </Link>
+                  <Link to="/category/jewellery/necklace" className="block px-4 py-2 text-sm text-slate-800 hover:bg-gray-100">
+                    Necklace
+                  </Link>
+                  <Link to="/category/jewellery/earrings" className="block px-4 py-2 text-sm text-slate-800 hover:bg-gray-100">
+                    Earrings
+                  </Link>
+                </div>
+              </div>
 
-          </div>
+              <Link to="/category/bags" className="whitespace-nowrap px-2 py-1 text-sm text-slate-900 hover:opacity-90">
+                Bags
+              </Link>
+              <Link to="/category/fashion" className="whitespace-nowrap px-2 py-1 text-sm text-slate-900 hover:opacity-90">
+                Accessories
+              </Link>
+            </div>
 
-          <div className="flex items-center justify-end gap-1">
-            <Link to="/account" className="flex h-10 w-10 items-center justify-center text-slate-900" aria-label="Account">
-              <IconUser />
-            </Link>
-            <Link to="/wishlist" className="flex h-10 w-10 items-center justify-center text-slate-900" aria-label="Wishlist">
-              <IconHeart />
-            </Link>
-            <Link to="/cart" className="site-header__icon-link site-header__cart-link" aria-label="Shopping cart">
-              <IconCart />
-              {cartCount > 0 && (
-                <span className="site-header__cart-badge">{cartCount > 99 ? '99+' : cartCount}</span>
+            <div className="scroll-primary-nav__actions">
+              {isAdmin && (
+                <Link
+                  to="/admin"
+                  className="site-header__icon-link scroll-primary-nav__icon"
+                  aria-label="Admin dashboard"
+                  title="Admin"
+                >
+                  <LayoutDashboard size={20} strokeWidth={1.75} />
+                </Link>
               )}
-            </Link>
+              <Link to="/account" className="site-header__icon-link scroll-primary-nav__icon" aria-label="Account">
+                <IconUser />
+              </Link>
+              <Link to="/wishlist" className="site-header__icon-link scroll-primary-nav__icon" aria-label="Wishlist">
+                <IconHeart />
+              </Link>
+              <Link
+                to="/cart"
+                className="site-header__icon-link scroll-primary-nav__icon site-header__cart-link"
+                aria-label="Shopping cart"
+              >
+                <IconCart />
+                {cartCount > 0 && (
+                  <span className="site-header__cart-badge">{cartCount > 99 ? '99+' : cartCount}</span>
+                )}
+              </Link>
+            </div>
           </div>
-
-        </div>
-      </nav>
+        </nav>,
+        document.body
+      )}
 
     </>
   )
