@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { LayoutDashboard } from 'lucide-react'
@@ -60,6 +60,12 @@ const Header = () => {
   const { cartCount } = useCart()
   const { isAdmin } = useAuth()
   const [showScrollNav, setShowScrollNav] = useState(false)
+  const scrollNavJewelleryRef = useRef(null)
+
+  useEffect(() => {
+    const el = scrollNavJewelleryRef.current
+    if (el) el.open = false
+  }, [location.pathname, location.search])
 
   useEffect(() => {
     const getScrollTop = () => {
@@ -137,7 +143,7 @@ const Header = () => {
                 className="site-header__search-input "
                 autoComplete="off"
               />
-              <button type="submit" className="bg-[#74BFBF] w-8" aria-label="Search">
+              <button type="submit" className="site-header__search-submit" aria-label="Search">
                 <IconSearch />
               </button>
             </form>
@@ -196,29 +202,20 @@ const Header = () => {
               <Link to="/" className="whitespace-nowrap px-2 py-1 text-sm text-slate-900 hover:opacity-90">
                 Home
               </Link>
-              <Link to="/products" className="whitespace-nowrap px-2 py-1 text-sm text-slate-900 hover:opacity-90">
+              <Link to="/products" className="whitespace-nowrap px-2 py-1 text-xs text-slate-900 hover:opacity-90">
                 Products
               </Link>
 
-              <div className="relative group">
-                <span className="cursor-pointer whitespace-nowrap px-2 py-1 text-sm text-slate-900 hover:opacity-90">
+              <details ref={scrollNavJewelleryRef} className="scroll-primary-nav__details">
+                <summary className="scroll-primary-nav__summary whitespace-nowrap px-2 py-1 text-sm text-slate-900 hover:opacity-90">
                   Jewellery ▾
-                </span>
-                <div
-                  className="absolute left-0 top-full z-[1] mt-1 hidden min-w-[150px] bg-white shadow-lg group-hover:block"
-                  style={{ borderTop: '2px solid #74BFBF' }}
-                >
-                  <Link to="/category/jewellery/rings" className="block px-4 py-2 text-sm text-slate-800 hover:bg-gray-100">
-                    Rings
-                  </Link>
-                  <Link to="/category/jewellery/necklace" className="block px-4 py-2 text-sm text-slate-800 hover:bg-gray-100">
-                    Necklace
-                  </Link>
-                  <Link to="/category/jewellery/earrings" className="block px-4 py-2 text-sm text-slate-800 hover:bg-gray-100">
-                    Earrings
-                  </Link>
+                </summary>
+                <div className="scroll-primary-nav__dropdown-panel">
+                  <Link to="/category/jewellery/rings">Rings</Link>
+                  <Link to="/category/jewellery/necklace">Necklace</Link>
+                  <Link to="/category/jewellery/earrings">Earrings</Link>
                 </div>
-              </div>
+              </details>
 
               <Link to="/category/bags" className="whitespace-nowrap px-2 py-1 text-sm text-slate-900 hover:opacity-90">
                 Bags
