@@ -68,6 +68,10 @@ const Footer = () => {
             <div className="border-t mt-10 pt-4 text-center text-xs text-gray-500">
                 © 2026 Jewellery Store. All rights reserved.
             </div>
+            <input
+                type="file"
+                className="relative z-50 cursor-pointer"
+            />
 
         </footer>
     );

@@ -6,6 +6,7 @@ import BestDeal from '../../components/BestDeal/BestDeal'
 import RecentPost from '../../components/RecentPost/RecentPost'
 import NewsLetter from '../../components/NewsLetter/NewsLetter'
 import Footer from '../../components/Footer/Footer'
+import Insta from '../../components/InstagramEmbadded/Insta'
 
 
 const HomePage = () => {
@@ -16,6 +17,7 @@ const HomePage = () => {
       <NewArrivalProduct />
       <BestDeal />
       {/* <RecentPost /> */}
+      <Insta />
       <NewsLetter />
       <Footer />
     </section>

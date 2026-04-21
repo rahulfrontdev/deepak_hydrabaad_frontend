@@ -40,9 +40,9 @@ const CategoryCards = () => {
 
       <div className='d-flex mb-4'>
         <h2 className="text-lg  font-semibold ">
-          Top Categories in Sales and Trending
+          Categories
         </h2>
-        <h5 className='text-center text-xs'>Last Month up to 1500+ Products Sales From this category. You can choose a product from here and save money.</h5>
+        {/* <h5 className='text-center text-xs'>Last Month up to 1500+ Products Sales From this category. You can choose a product from here and save money.</h5> */}
 
       </div>
 

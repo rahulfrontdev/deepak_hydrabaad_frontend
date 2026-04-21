@@ -198,6 +198,7 @@ const Header = () => {
               </Link>
             </div>
 
+
             <div className="scroll-primary-nav__links">
               <Link to="/" className="whitespace-nowrap px-2 py-1 text-sm text-slate-900 hover:opacity-90">
                 Home
