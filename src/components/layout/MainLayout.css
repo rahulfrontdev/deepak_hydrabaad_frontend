@@ -587,7 +587,7 @@
   flex-shrink: 0;
 }
 
-.site-navbar-primary__details > summary {
+.site-navbar-primary__details>summary {
   list-style: none;
   cursor: pointer;
   white-space: nowrap;
@@ -598,11 +598,11 @@
   border-radius: 6px;
 }
 
-.site-navbar-primary__details > summary::-webkit-details-marker {
+.site-navbar-primary__details>summary::-webkit-details-marker {
   display: none;
 }
 
-.site-navbar-primary__details > summary:hover {
+.site-navbar-primary__details>summary:hover {
   background: rgba(255, 255, 255, 0.25);
 }
 
@@ -643,7 +643,7 @@
     font-size: 0.875rem;
   }
 
-  .site-navbar-primary__details > summary {
+  .site-navbar-primary__details>summary {
     padding: 0.35rem 0.65rem;
     font-size: 0.875rem;
   }

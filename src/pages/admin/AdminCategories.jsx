@@ -1,494 +1,378 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { adminCreateCategory, adminDeleteCategory, adminFetchCategories, adminUpdateCategory } from '../../api/adminApi'
-import { Loader2, Pencil, Trash2 } from 'lucide-react'
-
-const emptyMainForm = { name: '', slug: '', description: '' }
-const emptySubForm = { parentId: '', name: '', slug: '', description: '' }
-
-function normalizeList(payload) {
-  if (Array.isArray(payload)) return payload
-  if (payload?.data && Array.isArray(payload.data)) return payload.data
-  return []
-}
-
-function getCategoryId(cat) {
-  return cat ? String(cat._id ?? cat.id ?? '') : ''
-}
-
-function getParentId(cat) {
-  if (!cat) return null
-  const raw = cat.parentId ?? cat.parent?._id ?? cat.parent ?? cat.parentCategory
-  if (raw == null || raw === '') return null
-  return String(raw)
-}
-
-function isRootCategory(cat) {
-  return !getParentId(cat)
-}
+import React, { useEffect, useState } from "react";
+import {
+  adminCreateCategoryUpload,
+  adminDeleteCategory,
+  adminFetchCategoryChildren,
+  adminFetchCategoryTree,
+  adminFetchRootCategories,
+} from "../../api/adminApi";
 
 const AdminCategories = () => {
-  const [activeTab, setActiveTab] = useState('main')
-  const [list, setList] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-  const [mainForm, setMainForm] = useState(emptyMainForm)
-  const [subForm, setSubForm] = useState(emptySubForm)
-  const [savingMain, setSavingMain] = useState(false)
-  const [savingSub, setSavingSub] = useState(false)
-  const [editingMainId, setEditingMainId] = useState(null)
-  const [editingSubId, setEditingSubId] = useState(null)
-  /** Filter subcategory list by parent (empty = show all) */
-  const [subFilterParentId, setSubFilterParentId] = useState('')
-
-  const load = useCallback(async () => {
-    setError('')
-    try {
-      setLoading(true)
-      const { data } = await adminFetchCategories()
-      setList(normalizeList(data))
-    } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Failed to load categories.')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const [isOpen, setIsOpen] = useState(false);
+  const [category, setCategory] = useState({
+    name: "",
+    parent: "",
+    description: "",
+    image: null,
+  });
+  const [categories, setCategories] = useState([]);
+  const [deletingId, setDeletingId] = useState("");
+  const [parentOptions, setParentOptions] = useState([]);
+  const [expandedNodes, setExpandedNodes] = useState({});
+  const [childrenByParentId, setChildrenByParentId] = useState({});
+  const [loadingChildrenByParentId, setLoadingChildrenByParentId] = useState({});
 
   useEffect(() => {
-    load()
-  }, [load])
+    fetchAllCategories();
+    fetchRootCategories();
+  }, []);
 
-  const rootCategories = useMemo(() => list.filter(isRootCategory), [list])
+  const flattenCategoryTree = (nodes, level = 0) => {
+    if (!Array.isArray(nodes)) return [];
 
-  const allSubcategories = useMemo(() => list.filter((c) => !isRootCategory(c)), [list])
+    return nodes.flatMap((node) => {
+      const nodeId = node?._id || node?.id;
+      const nodeName = node?.name || "Unnamed";
+      const children = node?.children || node?.subcategories || [];
 
-  const filteredSubcategories = useMemo(() => {
-    if (!subFilterParentId) return allSubcategories
-    return allSubcategories.filter((c) => getParentId(c) === String(subFilterParentId))
-  }, [allSubcategories, subFilterParentId])
+      const currentNode = nodeId
+        ? [{ id: nodeId, label: `${"— ".repeat(level)}${nodeName}` }]
+        : [];
+      return [...currentNode, ...flattenCategoryTree(children, level + 1)];
+    });
+  };
 
-  const parentNameById = useMemo(() => {
-    const m = new Map()
-    for (const c of list) {
-      m.set(getCategoryId(c), c.name ?? '')
-    }
-    return m
-  }, [list])
-
-  const onSubmitMain = async (e) => {
-    e.preventDefault()
-    if (!mainForm.name.trim()) return
-    setSavingMain(true)
-    setError('')
+  const fetchAllCategories = async () => {
     try {
-      const body = {
-        name: mainForm.name.trim(),
-        slug: mainForm.slug.trim() || undefined,
-        description: mainForm.description.trim() || undefined,
-      }
-      if (editingMainId) {
-        await adminUpdateCategory(editingMainId, body)
-      } else {
-        await adminCreateCategory(body)
-      }
-      setMainForm(emptyMainForm)
-      setEditingMainId(null)
-      await load()
+      const response = await adminFetchCategoryTree();
+      const treeData = response?.data?.data || [];
+      setParentOptions(flattenCategoryTree(treeData));
     } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Save failed.')
+      console.error(err);
+      setParentOptions([]);
+    }
+  };
+
+  const fetchRootCategories = async () => {
+    try {
+      const response = await adminFetchRootCategories();
+      setCategories(response?.data?.data || []);
+    } catch (err) {
+      console.error(err);
+      setCategories([]);
+    }
+  };
+
+  const getCategoryId = (item) => item?._id || item?.id;
+
+  const loadChildCategories = async (parentId) => {
+    if (!parentId) return [];
+    setLoadingChildrenByParentId((prev) => ({ ...prev, [parentId]: true }));
+    try {
+      const response = await adminFetchCategoryChildren(parentId);
+      const children = response?.data?.data || [];
+      setChildrenByParentId((prev) => ({ ...prev, [parentId]: children }));
+      return children;
+    } catch (error) {
+      console.error("Error loading child categories:", error);
+      setChildrenByParentId((prev) => ({ ...prev, [parentId]: [] }));
+      return [];
     } finally {
-      setSavingMain(false)
+      setLoadingChildrenByParentId((prev) => ({ ...prev, [parentId]: false }));
     }
-  }
+  };
 
-  const onSubmitSub = async (e) => {
-    e.preventDefault()
-    if (!subForm.parentId || !subForm.name.trim()) return
-    setSavingSub(true)
-    setError('')
+  const handleToggleExpand = async (cat) => {
+    const categoryId = getCategoryId(cat);
+    if (!categoryId) return;
+
+    const isExpanded = !!expandedNodes[categoryId];
+    if (isExpanded) {
+      setExpandedNodes((prev) => ({ ...prev, [categoryId]: false }));
+      return;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(childrenByParentId, categoryId)) {
+      await loadChildCategories(categoryId);
+    }
+    setExpandedNodes((prev) => ({ ...prev, [categoryId]: true }));
+  };
+
+  const handleChange = (e) => {
+    const { name, value, files } = e.target;
+    if (name === "image") {
+      setCategory({ ...category, image: files[0] });
+      return;
+    }
+    setCategory({ ...category, [name]: value });
+  };
+
+  const handleDeleteCategory = async (categoryId, categoryName) => {
+    if (!categoryId) return;
+    const isConfirmed = window.confirm(
+      `Delete "${categoryName}" and all its child categories?`
+    );
+    if (!isConfirmed) return;
+
     try {
-      const body = {
-        name: subForm.name.trim(),
-        slug: subForm.slug.trim() || undefined,
-        description: subForm.description.trim() || undefined,
-        parentId: subForm.parentId,
-      }
-      if (editingSubId) {
-        await adminUpdateCategory(editingSubId, body)
-      } else {
-        await adminCreateCategory(body)
-      }
-      setSubForm(emptySubForm)
-      setEditingSubId(null)
-      await load()
-    } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Subcategory save failed.')
+      setDeletingId(categoryId);
+      await adminDeleteCategory(categoryId);
+      await fetchAllCategories();
+      await fetchRootCategories();
+      setExpandedNodes({});
+      setChildrenByParentId({});
+      setLoadingChildrenByParentId({});
+    } catch (error) {
+      console.error("Error deleting category tree:", error);
     } finally {
-      setSavingSub(false)
+      setDeletingId("");
     }
-  }
+  };
 
-  const onEditMain = (cat) => {
-    setEditingMainId(getCategoryId(cat))
-    setMainForm({
-      name: cat.name ?? '',
-      slug: cat.slug ?? '',
-      description: cat.description ?? '',
-    })
-  }
-
-  const onEditSub = (cat) => {
-    setEditingSubId(getCategoryId(cat))
-    setSubForm({
-      parentId: getParentId(cat) ?? '',
-      name: cat.name ?? '',
-      slug: cat.slug ?? '',
-      description: cat.description ?? '',
-    })
-  }
-
-  const onDelete = async (id) => {
-    if (!window.confirm('Delete this category? Child subcategories may need to be removed first.')) return
+  const handleSubmit = async () => {
     try {
-      await adminDeleteCategory(id)
-      if (String(id) === String(editingMainId)) {
-        setEditingMainId(null)
-        setMainForm(emptyMainForm)
-      }
-      if (String(id) === String(editingSubId)) {
-        setEditingSubId(null)
-        setSubForm(emptySubForm)
-      }
-      await load()
-    } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Delete failed.')
-    }
-  }
+      const formData = new FormData();
+      formData.append("name", category.name);
+      formData.append("description", category.description);
 
-  const tabBtn = (id, label) => (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={activeTab === id}
-      onClick={() => {
-        setActiveTab(id)
-        setError('')
-      }}
-      className={`rounded-lg px-4 py-2.5 text-sm font-semibold transition ${
-        activeTab === id
-          ? 'bg-white text-slate-900 shadow-sm ring-1 ring-slate-200'
-          : 'text-slate-600 hover:bg-slate-200/80 hover:text-slate-900'
-      }`}
-    >
-      {label}
-    </button>
-  )
+      if (category.parent) {
+        formData.append("parentId", category.parent);
+        formData.append("parent", category.parent);
+      }
+
+      if (category.image) {
+        formData.append("image", category.image);
+      }
+
+      await adminCreateCategoryUpload(formData);
+      setIsOpen(false);
+      setCategory({
+        name: "",
+        parent: "",
+        description: "",
+        image: null,
+      });
+      await fetchAllCategories();
+      await fetchRootCategories();
+      setExpandedNodes({});
+      setChildrenByParentId({});
+      setLoadingChildrenByParentId({});
+    } catch (error) {
+      console.error("Error creating category:", error);
+    }
+  };
+
+  const renderCategoryNode = (cat, level = 0, parentLabel = "Main Category") => {
+    const categoryId = getCategoryId(cat);
+    if (!categoryId) return null;
+
+    const isExpanded = !!expandedNodes[categoryId];
+    const isLoadingChildren = !!loadingChildrenByParentId[categoryId];
+    const children = childrenByParentId[categoryId] || [];
+    const imageHeightClass = level === 0 ? "h-44" : "h-36";
+    const nestedOffset = Math.min(level * 16, 80);
+
+    return (
+      <div key={`${categoryId}-${level}`} className="space-y-2">
+        <div
+          onClick={() => handleToggleExpand(cat)}
+          className="group bg-white border border-gray-200 rounded-xl p-3 transition-all hover:shadow-md hover:-translate-y-0.5 cursor-pointer"
+          style={{ marginLeft: `${nestedOffset}px` }}
+        >
+          <div className={`w-full ${imageHeightClass} rounded-lg bg-gray-50 border border-gray-100 overflow-hidden flex items-center justify-center p-3`}>
+            {cat.image ? (
+              <img
+                src={cat.image}
+                alt={cat.name}
+                className="w-full h-full object-contain"
+              />
+            ) : (
+              <span className="text-xs font-semibold text-gray-400">No Image</span>
+            )}
+          </div>
+
+          <div className="min-w-0 flex-1 mt-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="font-semibold text-gray-800 truncate">{cat.name}</p>
+                <p className="text-xs text-gray-500 mt-0.5">Parent: {parentLabel}</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs text-gray-500 px-2 py-1 bg-gray-100 rounded-md">
+                  {isExpanded ? "Hide" : "Show"}
+                </span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteCategory(categoryId, cat.name);
+                  }}
+                  disabled={deletingId === categoryId}
+                  className="text-xs text-red-600 hover:text-red-700 font-medium disabled:opacity-50"
+                >
+                  {deletingId === categoryId ? "Deleting..." : "Delete"}
+                </button>
+              </div>
+            </div>
+            {cat.description && (
+              <p className="text-xs text-gray-500 mt-1 line-clamp-2">{cat.description}</p>
+            )}
+          </div>
+        </div>
+
+        {isExpanded && (
+          <div className="space-y-2">
+            {isLoadingChildren ? (
+              <p className="text-xs text-gray-500" style={{ marginLeft: `${Math.min((level + 1) * 16, 96)}px` }}>
+                Loading child categories...
+              </p>
+            ) : children.length === 0 ? (
+              <p className="text-xs text-gray-500" style={{ marginLeft: `${Math.min((level + 1) * 16, 96)}px` }}>
+                No child categories
+              </p>
+            ) : (
+              children.map((child) => renderCategoryNode(child, level + 1, cat.name))
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold text-slate-900">Categories</h1>
-      <p className="mt-1 text-sm text-slate-600">
-        Use <strong>Categories</strong> for top-level groups and <strong>Subcategories</strong> for items under a parent.
-        API uses optional <code className="rounded bg-slate-100 px-1 text-xs">parentId</code>.
-      </p>
-
-      <div className="mt-6 flex flex-wrap gap-2 rounded-xl bg-slate-200/60 p-1.5" role="tablist" aria-label="Category type">
-        {tabBtn('main', 'Categories')}
-        {tabBtn('sub', 'Subcategories')}
+    <div className="p-6 bg-gray-50 min-h-screen">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-bold text-gray-800">Category Management</h2>
+        <button
+          onClick={() => setIsOpen(true)}
+          className="bg-gradient-to-r from-black to-gray-700 text-white px-4 py-2 rounded-lg text-sm shadow-md hover:scale-105 transition"
+        >
+          + Create Category
+        </button>
       </div>
 
-      {error && (
-        <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" role="alert">
-          {error}
+      <div className="bg-white rounded-lg shadow p-4">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">Main Categories</h3>
+          <span className="text-xs px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 font-medium">
+            {categories.length} total
+          </span>
         </div>
-      )}
 
-      {activeTab === 'main' && (
-        <div className="mt-8 grid gap-8 xl:grid-cols-[1fr_380px]">
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
-              <h2 className="text-sm font-semibold text-slate-900">Main categories</h2>
-              <p className="mt-0.5 text-xs text-slate-500">Top-level only (no parent).</p>
+        {categories.length === 0 ? (
+          <p className="text-gray-500 text-sm">No categories found</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {categories?.map((cat) => renderCategoryNode(cat))}
+          </div>
+        )}
+      </div>
+
+      {isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6 transform transition-all scale-100 animate-fadeIn">
+            <div className="flex justify-between items-center mb-5">
+              <h3 className="text-xl font-semibold text-gray-800">Create Category</h3>
+              <button
+                onClick={() => setIsOpen(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500"
+              >
+                ✕
+              </button>
             </div>
-            {loading ? (
-              <div className="flex items-center justify-center py-16 text-slate-500">
-                <Loader2 className="animate-spin" size={24} />
-              </div>
-            ) : (
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-slate-200 bg-white text-slate-600">
-                  <tr>
-                    <th className="px-4 py-3 font-semibold">Name</th>
-                    <th className="px-4 py-3 font-semibold">Slug</th>
-                    <th className="w-28 px-4 py-3 font-semibold text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rootCategories.length === 0 ? (
-                    <tr>
-                      <td colSpan={3} className="px-4 py-10 text-center text-slate-500">
-                        No categories yet. Add one using the form.
-                      </td>
-                    </tr>
-                  ) : (
-                    rootCategories.map((cat) => {
-                      const id = getCategoryId(cat)
-                      return (
-                        <tr key={id} className="border-b border-slate-100 last:border-0">
-                          <td className="px-4 py-3 font-medium text-slate-900">{cat.name}</td>
-                          <td className="px-4 py-3 text-slate-600">{cat.slug ?? '—'}</td>
-                          <td className="px-4 py-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => onEditMain(cat)}
-                              className="mr-1 inline-flex rounded-lg p-2 text-slate-600 hover:bg-slate-100"
-                              aria-label="Edit"
-                            >
-                              <Pencil size={16} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onDelete(id)}
-                              className="inline-flex rounded-lg p-2 text-red-600 hover:bg-red-50"
-                              aria-label="Delete"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </td>
-                        </tr>
-                      )
-                    })
-                  )}
-                </tbody>
-              </table>
-            )}
-          </div>
 
-          <div className="h-fit rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-900">
-              {editingMainId ? 'Edit category' : 'New category'}
-            </h2>
-            <form onSubmit={onSubmitMain} className="mt-4 space-y-3">
+            <div className="flex flex-col gap-4">
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">Name *</label>
+                <label className="text-sm text-gray-600 mb-1 block">Category Name</label>
                 <input
-                  value={mainForm.name}
-                  onChange={(e) => setMainForm((f) => ({ ...f, name: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                  placeholder="Electronics"
+                  type="text"
+                  name="name"
+                  value={category.name}
+                  onChange={handleChange}
+                  placeholder="Enter category name"
+                  className="w-full border border-gray-300 p-2 rounded-lg focus:ring-2 focus:ring-black outline-none transition"
                 />
               </div>
+
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">Slug</label>
-                <input
-                  value={mainForm.slug}
-                  onChange={(e) => setMainForm((f) => ({ ...f, slug: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">Description</label>
-                <textarea
-                  value={mainForm.description}
-                  onChange={(e) => setMainForm((f) => ({ ...f, description: e.target.value }))}
-                  rows={3}
-                  className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="submit"
-                  disabled={savingMain}
-                  className="flex-1 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                <label className="text-sm text-gray-600 mb-1 block">Parent Category</label>
+                <select
+                  name="parent"
+                  value={category.parent}
+                  onChange={handleChange}
+                  className="w-full border border-gray-300 p-2 rounded-lg focus:ring-2 focus:ring-black outline-none"
                 >
-                  {savingMain ? 'Saving…' : editingMainId ? 'Update' : 'Create'}
-                </button>
-                {editingMainId && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingMainId(null)
-                      setMainForm(emptyMainForm)
-                    }}
-                    className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    Cancel
-                  </button>
-                )}
+                  <option value="">None (Main Category)</option>
+                  {parentOptions.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
 
-      {activeTab === 'sub' && (
-        <div className="mt-8 grid gap-8 xl:grid-cols-[1fr_380px]">
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:items-end sm:justify-between">
               <div>
-                <h2 className="text-sm font-semibold text-slate-900">Subcategories</h2>
-                <p className="mt-0.5 text-xs text-slate-500">Must belong to a main category.</p>
+                <label className="text-sm text-gray-600 mb-1 block">Description</label>
+                <textarea
+                  name="description"
+                  value={category.description}
+                  onChange={handleChange}
+                  rows="3"
+                  placeholder="Write something..."
+                  className="w-full border border-gray-300 p-2 rounded-lg focus:ring-2 focus:ring-black outline-none resize-none"
+                />
               </div>
-              <div className="min-w-[200px]">
-                <label htmlFor="sub-filter" className="mb-1 block text-xs font-medium text-slate-600">
-                  Filter by parent
+
+              <div>
+                <label className="text-sm text-gray-600 mb-1 block">Category Image</label>
+                <label className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-2 cursor-pointer hover:bg-gray-50 transition">
+                  <span className="text-gray-500 text-sm">Click to upload or drag & drop</span>
+                  <input
+                    type="file"
+                    name="image"
+                    onChange={handleChange}
+                    className="hidden"
+                  />
                 </label>
-                <select
-                  id="sub-filter"
-                  value={subFilterParentId}
-                  onChange={(e) => setSubFilterParentId(e.target.value)}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              </div>
+
+              <div className="flex justify-end gap-3 mt-4">
+                <button
+                  onClick={() => setIsOpen(false)}
+                  className="px-4 py-2 border rounded-lg"
                 >
-                  <option value="">All parents</option>
-                  {rootCategories.map((c) => {
-                    const id = getCategoryId(c)
-                    return (
-                      <option key={id} value={id}>
-                        {c.name}
-                      </option>
-                    )
-                  })}
-                </select>
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSubmit}
+                  className="bg-black text-white px-4 py-2 rounded-lg"
+                >
+                  Save
+                </button>
               </div>
             </div>
-            {loading ? (
-              <div className="flex items-center justify-center py-16 text-slate-500">
-                <Loader2 className="animate-spin" size={24} />
-              </div>
-            ) : rootCategories.length === 0 ? (
-              <div className="px-4 py-10 text-center text-sm text-slate-500">
-                Create at least one main category in the <strong>Categories</strong> tab first.
-              </div>
-            ) : (
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-slate-200 bg-white text-slate-600">
-                  <tr>
-                    <th className="px-4 py-3 font-semibold">Name</th>
-                    <th className="px-4 py-3 font-semibold">Parent</th>
-                    <th className="px-4 py-3 font-semibold">Slug</th>
-                    <th className="w-28 px-4 py-3 font-semibold text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredSubcategories.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-4 py-10 text-center text-slate-500">
-                        No subcategories yet. Add one using the form.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredSubcategories.map((cat) => {
-                      const id = getCategoryId(cat)
-                      const pid = getParentId(cat)
-                      return (
-                        <tr key={id} className="border-b border-slate-100 last:border-0">
-                          <td className="px-4 py-3 font-medium text-slate-900">{cat.name}</td>
-                          <td className="px-4 py-3 text-slate-600">{parentNameById.get(pid) ?? '—'}</td>
-                          <td className="px-4 py-3 text-slate-600">{cat.slug ?? '—'}</td>
-                          <td className="px-4 py-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => onEditSub(cat)}
-                              className="mr-1 inline-flex rounded-lg p-2 text-slate-600 hover:bg-slate-100"
-                              aria-label="Edit"
-                            >
-                              <Pencil size={16} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onDelete(id)}
-                              className="inline-flex rounded-lg p-2 text-red-600 hover:bg-red-50"
-                              aria-label="Delete"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </td>
-                        </tr>
-                      )
-                    })
-                  )}
-                </tbody>
-              </table>
-            )}
-          </div>
-
-          <div className="h-fit rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-900">
-              {editingSubId ? 'Edit subcategory' : 'New subcategory'}
-            </h2>
-            <form onSubmit={onSubmitSub} className="mt-4 space-y-3">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">Parent category *</label>
-                <select
-                  required
-                  value={subForm.parentId}
-                  onChange={(e) => setSubForm((f) => ({ ...f, parentId: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                  disabled={rootCategories.length === 0}
-                >
-                  <option value="">Select main category</option>
-                  {rootCategories.map((c) => {
-                    const id = getCategoryId(c)
-                    return (
-                      <option key={id} value={id}>
-                        {c.name}
-                      </option>
-                    )
-                  })}
-                </select>
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">Name *</label>
-                <input
-                  value={subForm.name}
-                  onChange={(e) => setSubForm((f) => ({ ...f, name: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                  placeholder="Smartphones"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">Slug</label>
-                <input
-                  value={subForm.slug}
-                  onChange={(e) => setSubForm((f) => ({ ...f, slug: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-slate-700">Description</label>
-                <textarea
-                  value={subForm.description}
-                  onChange={(e) => setSubForm((f) => ({ ...f, description: e.target.value }))}
-                  rows={3}
-                  className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-              <div className="flex flex-wrap gap-2 pt-2">
-                <button
-                  type="submit"
-                  disabled={savingSub || !subForm.parentId || !subForm.name.trim()}
-                  className="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-                >
-                  {savingSub ? 'Saving…' : editingSubId ? 'Update' : 'Create'}
-                </button>
-                {editingSubId && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingSubId(null)
-                      setSubForm(emptySubForm)
-                    }}
-                    className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    Cancel
-                  </button>
-                )}
-              </div>
-            </form>
           </div>
         </div>
       )}
-    </div>
-  )
-}
 
-export default AdminCategories
+      <style>
+        {`
+          @keyframes fadeIn {
+            from {
+              opacity: 0;
+              transform: scale(0.95);
+            }
+            to {
+              opacity: 1;
+              transform: scale(1);
+            }
+          }
+          .animate-fadeIn {
+            animation: fadeIn 0.2s ease-in-out;
+          }
+        `}
+      </style>
+    </div>
+  );
+};
+
+export default AdminCategories;

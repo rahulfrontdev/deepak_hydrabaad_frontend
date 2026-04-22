@@ -22,7 +22,9 @@ const AccountOrdersPage = () => {
         <p className="mt-1 text-sm text-neutral-600">Your recent purchases placed from the cart.</p>
       </div>
 
+
       {sortedOrders.length === 0 ? (
+
         <div className="rounded-2xl border border-neutral-200 bg-white p-8 text-center shadow-sm">
           <Package className="mx-auto mb-3 text-neutral-400" size={26} />
           <p className="text-sm font-medium text-neutral-700">No orders yet.</p>
@@ -57,6 +59,7 @@ const AccountOrdersPage = () => {
                     <p className="text-lg font-bold text-neutral-900">₹{Number(o.total).toLocaleString('en-IN')}</p>
                   </div>
                 </div>
+
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <div className="flex items-center gap-2 text-xs text-neutral-600">

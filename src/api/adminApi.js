@@ -7,8 +7,10 @@ import axiosInstance from './axiosInstance'
  */
 
 /** Categories — POST/PUT body may include optional parentId (Mongo ObjectId) for subcategories */
-export const adminFetchCategories = () => axiosInstance.get('/categories')
-export const adminCreateCategory = (body) => axiosInstance.post('/categories', body)
+export const adminCreateCategoryUpload = (formData) => axiosInstance.post('/categories/create', formData)
+export const adminFetchCategoryTree = () => axiosInstance.get('/categories/tree')
+export const adminFetchRootCategories = () => axiosInstance.get('/categories/getRoot')
+export const adminFetchCategoryChildren = (id) => axiosInstance.get(`/categories/${id}/children`)
 export const adminUpdateCategory = (id, body) => axiosInstance.put(`/categories/${id}`, body)
 export const adminDeleteCategory = (id) => axiosInstance.delete(`/categories/${id}`)
 
