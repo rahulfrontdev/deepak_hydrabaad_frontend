@@ -1,39 +1,24 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { fetchRootCategories } from '../../api/categoriesApi'
 
 const CategoryCards = () => {
+  const [categories, setCategories] = useState([])
 
-  const categories = [
-    {
-      id: 'diamond-rings',
-      name: 'Diamond Rings',
-      imageUrl: 'https://images.unsplash.com/photo-1605100804763-247f67b3557e?auto=format&fit=crop&w=800&q=60'
-    },
-    {
-      id: 'gold-rings',
-      name: 'Gold Rings',
-      imageUrl: 'https://images.unsplash.com/photo-1611652022419-a9419f74343d?auto=format&fit=crop&w=800&q=60'
-    },
-    {
-      id: 'engagement-rings',
-      name: 'Engagement Rings',
-      imageUrl: 'https://images.unsplash.com/photo-1602751584552-8ba73aad10e1?auto=format&fit=crop&w=800&q=60'
-    },
-    {
-      id: 'wedding-rings',
-      name: 'Wedding Rings',
-      imageUrl: 'https://images.unsplash.com/photo-1599643478518-a784e5dc4c8f?auto=format&fit=crop&w=800&q=60'
-    },
-    {
-      id: 'pendants',
-      name: 'Pendants',
-      imageUrl: 'https://m.media-amazon.com/images/I/512ms7BDqxL._AC_UY1100_.jpg'
-    },
-    {
-      id: 'jewellery-sets',
-      name: 'Jewellery Sets',
-      imageUrl: 'https://images.unsplash.com/photo-1617038220319-276d3cfab638?auto=format&fit=crop&w=800&q=60'
+  useEffect(() => {
+    const loadRootCategories = async () => {
+      try {
+        // Public endpoint default now returns only enabled categories.
+        const response = await fetchRootCategories()
+        setCategories(response?.data?.data || [])
+      } catch (error) {
+        console.error('Error loading home categories:', error)
+        setCategories([])
+      }
     }
-  ];
+
+    loadRootCategories()
+  }, [])
 
   return (
     <section className="mt-6 px-4 mb-4">
@@ -47,23 +32,25 @@ const CategoryCards = () => {
       </div>
 
       {/* GRID OUTSIDE */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-5 md:gap-6">
 
         {categories.map((cat) => (
 
           <Link
-            key={cat.id}
-            to={`/category/${cat.id}`}
-            className="  rounded-lg overflow-hidden bg-white hover:shadow "
+            key={cat._id || cat.id}
+            to={`/category/${cat._id || cat.id}`}
+            className="rounded-xl overflow-hidden bg-white border border-gray-100 shadow-sm hover:shadow-md transition-shadow flex flex-col"
           >
 
-            <img
-              src={cat.imageUrl}
-              alt={cat.name}
-              className="w-full h-34 sm:h-28 object-cover"
-            />
+            <div className="w-full h-40 sm:h-48 md:h-56 bg-gray-50 flex items-center justify-center p-3 md:p-4">
+              <img
+                src={cat.image}
+                alt={cat.name}
+                className="w-full h-full object-contain"
+              />
+            </div>
 
-            <p className="text-center text-sm p-2">
+            <p className="text-center text-sm md:text-base font-medium text-gray-800 py-3 md:py-4 px-2">
               {cat.name}
             </p>
 

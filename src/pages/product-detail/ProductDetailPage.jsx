@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { Minus, Plus } from 'lucide-react'
 import { useCart } from '../../context/CartContext.jsx'
-import { getProductById } from '../../data/productsData'
+import { useAppDispatch, useAppSelector } from '../../app/hooks'
+import { clearCurrentProduct, loadProductById } from '../../features/products/productsSlice'
 
 /** Isolated so `key={productId}` on the parent remount resets the selected image without an effect. */
 function ProductGallery({ product }) {
@@ -35,12 +36,70 @@ function ProductGallery({ product }) {
 
 const ProductDetailPage = () => {
   const { productId } = useParams()
+  const dispatch = useAppDispatch()
+  const { current: productRaw, status, error } = useAppSelector((s) => s.products)
   const { addItem, updateQty, getItem } = useCart()
 
-  // Later: fetch by id from API and set product + loading / error
-  const product = useMemo(() => getProductById(productId), [productId])
+  useEffect(() => {
+    if (!productId) return
+    dispatch(loadProductById(productId))
+    return () => {
+      dispatch(clearCurrentProduct())
+    }
+  }, [dispatch, productId])
+
+  const product = useMemo(() => {
+    if (!productRaw) return null
+    const id = productRaw?._id || productRaw?.id || productId
+    const categoryLabel =
+      typeof productRaw?.category === 'string'
+        ? productRaw.category
+        : productRaw?.category?.name || ''
+    const image = productRaw?.imageUrl || productRaw?.image || ''
+    const price = Number(productRaw?.specialOfferPrice || productRaw?.price || 0)
+    const normalizedExtraImages = Array.isArray(productRaw?.images)
+      ? productRaw.images
+          .map((img) => {
+            if (typeof img === 'string') return img
+            if (img && typeof img === 'object') return img.url || img.imageUrl || ''
+            return ''
+          })
+          .filter(Boolean)
+      : []
+    const gallery = Array.from(new Set([image, ...normalizedExtraImages].filter(Boolean)))
+
+    return {
+      ...productRaw,
+      id,
+      category: categoryLabel,
+      image,
+      images: gallery,
+      price,
+    }
+  }, [productRaw, productId])
+
   const cartItem = product ? getItem(product.id) : null
   const qtyInCart = cartItem?.qty ?? 0
+
+  if (status === 'loading') {
+    return (
+      <div className="px-4 py-16 text-center">
+        <p className="text-sm text-neutral-600">Loading product details...</p>
+      </div>
+    )
+  }
+
+  if (status === 'failed') {
+    return (
+      <div className="px-4 py-16 text-center">
+        <h1 className="text-xl font-semibold text-neutral-900">Unable to load product</h1>
+        <p className="mt-2 text-sm text-neutral-600">{String(error || 'Please try again.')}</p>
+        <Link to="/products" className="mt-6 inline-block text-sm font-medium text-blue-600 hover:underline">
+          ← Back to products
+        </Link>
+      </div>
+    )
+  }
 
   if (!product) {
     return (
@@ -68,7 +127,9 @@ const ProductDetailPage = () => {
         <ProductGallery key={product.id} product={product} />
 
         <div>
-          <p className="text-sm font-medium uppercase tracking-wide text-neutral-500">{product.brand}</p>
+          <p className="text-sm font-medium uppercase tracking-wide text-neutral-500">
+            {product.brand || product.category}
+          </p>
           <h1 className="mt-1 text-3xl font-bold text-neutral-900">{product.name}</h1>
           <p className="mt-2 text-sm text-neutral-600">
             <span className="inline-block rounded-md bg-neutral-100 px-2 py-0.5 text-neutral-700">

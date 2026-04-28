@@ -10,7 +10,7 @@
 .app-layout {
   min-height: 100vh;
   background-color: #e8f4f4;
-  background-image: url('/Background.png');
+  background-image: url('/background_image.png');
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
