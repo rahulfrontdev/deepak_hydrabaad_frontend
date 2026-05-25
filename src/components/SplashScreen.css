@@ -35,9 +35,9 @@
 
 .splash-screen__logo {
   display: block;
-  height: 13.5rem;
+  height: 9.5rem;
   width: auto;
-  max-width: min(90vw, 440px);
+  max-width: min(85vw, 300px);
   object-fit: contain;
   transform-origin: center;
   will-change: transform;
@@ -46,7 +46,8 @@
 
 @media (min-width: 768px) {
   .splash-screen__logo {
-    height: 18.5rem;
+    height: 12rem;
+    max-width: 340px;
   }
 }
 

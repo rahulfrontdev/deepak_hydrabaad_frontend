@@ -1,13 +1,17 @@
 import { useEffect, useRef } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import CategoryNavTree from './CategoryNavTree'
+import useCategoryNavigation from '../../hooks/useCategoryNavigation'
 
 const SiteNavbar = () => {
   const location = useLocation()
-  const jewelleryDetailsRef = useRef(null)
+  const detailsRefs = useRef({})
+  const categoryNavigation = useCategoryNavigation()
 
   useEffect(() => {
-    const el = jewelleryDetailsRef.current
-    if (el) el.open = false
+    Object.values(detailsRefs.current).forEach((el) => {
+      if (el) el.open = false
+    })
   }, [location.pathname, location.search])
 
   return (
@@ -21,22 +25,27 @@ const SiteNavbar = () => {
           Products
         </Link>
 
-        <details ref={jewelleryDetailsRef} className="site-navbar-primary__details">
-          <summary className="site-navbar-primary__summary">Jewellery ▾</summary>
-          <div className="site-navbar-primary__panel">
-            <Link to="/category/jewellery/rings">Rings</Link>
-            <Link to="/category/jewellery/necklace">Necklace</Link>
-            <Link to="/category/jewellery/earrings">Earrings</Link>
-          </div>
-        </details>
-
-        <Link to="/category/bags" className="site-navbar-primary__link">
-          Bags
-        </Link>
-
-        <Link to="/category/fashion" className="site-navbar-primary__link">
-          Accessories
-        </Link>
+        {categoryNavigation.map((category) =>
+          category.children.length > 0 ? (
+            <details
+              key={category.id}
+              ref={(el) => {
+                detailsRefs.current[category.id] = el
+              }}
+              className="site-navbar-primary__details"
+            >
+              <summary className="site-navbar-primary__summary">{category.name} ▾</summary>
+              <div className="site-navbar-primary__panel">
+                <Link to={category.to}>All {category.name}</Link>
+                <CategoryNavTree nodes={category.children} />
+              </div>
+            </details>
+          ) : (
+            <Link key={category.id} to={category.to} className="site-navbar-primary__link">
+              {category.name}
+            </Link>
+          )
+        )}
       </div>
     </nav>
   )

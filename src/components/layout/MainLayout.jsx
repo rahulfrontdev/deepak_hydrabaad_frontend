@@ -1,6 +1,7 @@
 import { Outlet, useLocation } from 'react-router-dom'
 import Header from './Header'
 import SiteNavbar from './SiteNavbar'
+import Footer from '../Footer/Footer'
 import './MainLayout.css'
 import Announcement from './Annoucement'
 
@@ -16,6 +17,7 @@ const MainLayout = () => {
       <main className={`app-layout__main${isHome ? ' app-layout__main--home' : ''}`}>
         <Outlet />
       </main>
+      <Footer />
     </div>
   )
 }

@@ -1,8 +1,13 @@
-import axiosInstance from './axiosInstance'
+import { publicAxiosInstance } from './axiosInstance'
 
-export const fetchCategories = () => axiosInstance.get('/categories')
+export const fetchCategories = () => publicAxiosInstance.get('/categories')
+export const fetchCategoryTree = (options = {}) =>
+  publicAxiosInstance.get('/categories/tree', { params: options })
 export const fetchRootCategories = (options = {}) =>
-  axiosInstance.get('/categories/getRoot', { params: options })
+  publicAxiosInstance.get('/categories/getRoot', { params: options })
 
 export const fetchCategoryById = (categoryId) =>
-  axiosInstance.get(`/categories/${categoryId}`)
+  publicAxiosInstance.get(`/categories/${categoryId}`)
+
+export const fetchCategoryChildren = (categoryId, options = {}) =>
+  publicAxiosInstance.get(`/categories/${categoryId}/children`, { params: options })

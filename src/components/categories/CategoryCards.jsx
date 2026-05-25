@@ -8,7 +8,6 @@ const CategoryCards = () => {
   useEffect(() => {
     const loadRootCategories = async () => {
       try {
-        // Public endpoint default now returns only enabled categories.
         const response = await fetchRootCategories()
         setCategories(response?.data?.data || [])
       } catch (error) {
@@ -21,45 +20,38 @@ const CategoryCards = () => {
   }, [])
 
   return (
-    <section className="mt-6 px-4 mb-4">
-
-      <div className='d-flex mb-4'>
-        <h2 className="text-lg  font-semibold ">
-          Categories
-        </h2>
-        {/* <h5 className='text-center text-xs'>Last Month up to 1500+ Products Sales From this category. You can choose a product from here and save money.</h5> */}
+    <section className=" lg:mt-2 mb-2 w-full px-0">
+      <div className="mb-2 lg:mb-1">
+        <h2 className="text-xl text-center font-bold text-neutral-900 sm:text-2xl">Shop by Category</h2>
 
       </div>
 
-      {/* GRID OUTSIDE */}
-      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-5 md:gap-6">
-
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4 lg:gap-5 lg:p-3">
         {categories.map((cat) => (
-
           <Link
             key={cat._id || cat.id}
-            to={`/category/${cat._id || cat.id}`}
-            className="rounded-xl overflow-hidden bg-white border border-gray-100 shadow-sm hover:shadow-md transition-shadow flex flex-col"
+            to={`/products?category=${encodeURIComponent(cat.name)}`}
+            className="group overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-neutral-300 hover:shadow-lg"
           >
-
-            <div className="w-full h-40 sm:h-48 md:h-56 bg-gray-50 flex items-center justify-center p-3 md:p-4">
+            <div className="relative h-44 bg-gradient-to-br from-neutral-50 to-neutral-100 p-2 sm:h-44 sm:p-3">
               <img
                 src={cat.image}
                 alt={cat.name}
-                className="w-full h-full object-contain"
+                className="h-full w-full object-cover object-center transition-transform duration-500 group-hover:scale-105"
               />
             </div>
 
-            <p className="text-center text-sm md:text-base font-medium text-gray-800 py-3 md:py-4 px-2">
-              {cat.name}
-            </p>
-
+            <div className="px-2 py-2 text-center sm:px-3">
+              <p className="line-clamp-1 text-sm font-semibold text-neutral-800 sm:text-base">
+                {cat.name}
+              </p>
+              <p className="mt-1 text-[11px] font-medium text-blue-600 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
+                Explore now
+              </p>
+            </div>
           </Link>
-
         ))}
-
       </div>
-
     </section>
   )
 }

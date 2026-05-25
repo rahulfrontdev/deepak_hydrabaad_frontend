@@ -1,14 +1,16 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { axiosInstance } from '../api/axiosInstance'
 
-const initialForm = { name: '', email: '', password: '', confirmPassword: '' }
+const initialForm = { name: '', mobile: '', email: '', password: '', confirmPassword: '' }
 
 const Register = () => {
   const [form, setForm] = useState(initialForm)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const navigate = useNavigate()
+  const location = useLocation()
+  const redirectTo = location.state?.from || '/checkout'
 
   const onChange = (e) => {
     const { name, value } = e.target
@@ -19,8 +21,16 @@ const Register = () => {
     e.preventDefault()
     setError('')
 
-    if (!form.name.trim() || !form.email.trim() || !form.password) {
-      setError('Please fill in all required fields.')
+    if (!form.name.trim() || !form.mobile.trim() || !form.password) {
+      setError('Please fill in full name, mobile number and password.')
+      return
+    }
+    if (!/^\d{10}$/.test(form.mobile.trim())) {
+      setError('Please enter a valid 10-digit mobile number.')
+      return
+    }
+    if (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      setError('Please enter a valid email address or leave it empty.')
       return
     }
     if (form.password.length < 6) {
@@ -34,12 +44,20 @@ const Register = () => {
 
     try {
       setSubmitting(true)
-      await axiosInstance.post('/auth/register', {
+      const payload = {
         name: form.name.trim(),
-        email: form.email.trim().toLowerCase(),
+        mobile: form.mobile.trim(),
         password: form.password,
+      }
+      if (form.email.trim()) {
+        payload.email = form.email.trim().toLowerCase()
+      }
+
+      await axiosInstance.post('/auth/register', payload)
+      navigate('/login', {
+        replace: true,
+        state: { from: redirectTo, registeredMobile: form.mobile.trim() },
       })
-      navigate('/login')
     } catch (err) {
       const msg =
         err.response?.data?.message ||
@@ -78,20 +96,37 @@ const Register = () => {
               />
             </div>
 
-            <div>
-              <label htmlFor="email" className="mb-1 block text-xs font-medium text-slate-200">
-                Email
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                value={form.email}
-                onChange={onChange}
-                className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/25"
-                placeholder="you@example.com"
-              />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label htmlFor="mobile" className="mb-1 block text-xs font-medium text-slate-200">
+                  Mobile Number
+                </label>
+                <input
+                  id="mobile"
+                  name="mobile"
+                  type="tel"
+                  autoComplete="tel"
+                  value={form.mobile}
+                  onChange={onChange}
+                  className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/25"
+                  placeholder="9876543210"
+                />
+              </div>
+              <div>
+                <label htmlFor="email" className="mb-1 block text-xs font-medium text-slate-200">
+                  Email (optional)
+                </label>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  value={form.email}
+                  onChange={onChange}
+                  className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/25"
+                  placeholder="you@example.com"
+                />
+              </div>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
@@ -144,7 +179,7 @@ const Register = () => {
 
           <p className="mt-4 text-center text-xs text-slate-300">
             Already have an account?{' '}
-            <Link to="/login" className="font-semibold text-blue-300 hover:text-blue-200">
+            <Link to="/login" state={{ from: redirectTo }} className="font-semibold text-blue-300 hover:text-blue-200">
               Sign in
             </Link>
           </p>

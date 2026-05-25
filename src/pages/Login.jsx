@@ -1,20 +1,39 @@
-import { useState } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { axiosInstance } from '../api/axiosInstance'
-import { isAdminRole, useAuth } from '../context/AuthContext.jsx'
+import { useCart } from '../context/CartContext.jsx'
+import { isAdminRole, isCustomerRole, useAuth } from '../context/AuthContext.jsx'
+import { clearAuthStorage } from '../utils/authStorage'
 
 const initialForm = { email: '', password: '' }
 
-const Login = () => {
+const Login = ({ roleMode = 'customer' }) => {
     const [form, setForm] = useState(initialForm)
     const [submitting, setSubmitting] = useState(false)
     const [error, setError] = useState('')
     const navigate = useNavigate()
-    const { setUser, isAdmin } = useAuth()
+    const location = useLocation()
+    const { mergeGuestCart } = useCart()
+    const { setUser, isAdmin, isCustomer } = useAuth()
+    const redirectTo = location.state?.from || '/checkout'
+    const registeredMobile = location.state?.registeredMobile || ''
+    const isAdminLogin = roleMode === 'admin'
+    const hasWrongStoredRole = (isAdminLogin && isCustomer) || (!isAdminLogin && isAdmin)
 
-    // Already logged in as admin → go straight to management dashboard
-    if (isAdmin) {
+    useEffect(() => {
+        if (!hasWrongStoredRole) return
+        clearAuthStorage()
+        setUser(null)
+    }, [hasWrongStoredRole, setUser])
+
+    if (isAdminLogin && isAdmin && !submitting) {
         return <Navigate to="/admin" replace />
+    }
+    if (!isAdminLogin && isCustomer && !submitting) {
+        return <Navigate to={redirectTo} replace />
+    }
+    if (hasWrongStoredRole) {
+        return null
     }
 
     const onChange = (e) => {
@@ -33,6 +52,8 @@ const Login = () => {
 
         try {
             setSubmitting(true)
+            clearAuthStorage()
+            setUser(null)
             const { data } = await axiosInstance.post('/auth/login', {
                 email: form.email.trim().toLowerCase(),
                 password: form.password,
@@ -42,22 +63,65 @@ const Login = () => {
                 localStorage.setItem('token', data.token)
             }
 
-            const email = form.email.trim().toLowerCase()
+            const email = (data?.user?.email || data?.email || form.email).trim().toLowerCase()
             const roleFromUser = data?.user?.role
             const roleTopLevel = data?.role
             const resolvedRole = roleFromUser ?? roleTopLevel ?? 'customer'
+            const isResolvedAdmin = isAdminRole(resolvedRole)
+
+            if (isAdminLogin && !isResolvedAdmin) {
+                clearAuthStorage()
+                setError('Admin access only. Please login with an admin account.')
+                return
+            }
+
+            if (!isAdminLogin && !isCustomerRole(resolvedRole)) {
+                clearAuthStorage()
+                setError('Please use the admin login for admin accounts.')
+                return
+            }
+
+            const nameFromResponse = data?.user?.name || data?.name || data?.fullName || ''
+            const idFromResponse = data?.user?._id || data?._id || data?.user?.id || data?.id
+
+            let storedMobile = ''
+            try {
+                const existingUser = JSON.parse(localStorage.getItem('auth_user') || 'null')
+                storedMobile = existingUser?.mobile || existingUser?.phone || ''
+            } catch {
+                storedMobile = ''
+            }
+            const mobileFromResponse = data?.user?.mobile || data?.mobile || data?.phone || ''
+            const resolvedMobile = mobileFromResponse || registeredMobile || storedMobile
 
             const nextUser = data?.user
-                ? { ...data.user, role: resolvedRole }
-                : { email, role: resolvedRole }
+                ? {
+                    ...data.user,
+                    role: resolvedRole,
+                    name: data.user.name || nameFromResponse,
+                    ...(resolvedMobile ? { mobile: resolvedMobile } : {}),
+                }
+                : {
+                    _id: idFromResponse,
+                    name: nameFromResponse,
+                    email,
+                    role: resolvedRole,
+                    ...(resolvedMobile ? { mobile: resolvedMobile } : {}),
+                }
 
             setUser(nextUser)
 
-            // Admins land on /admin (dashboard with Categories, Products, Users)
-            if (isAdminRole(resolvedRole)) {
+            if (isResolvedAdmin) {
                 navigate('/admin', { replace: true })
             } else {
-                navigate('/', { replace: true })
+                const mergeResult = await mergeGuestCart()
+                if (!mergeResult.ok) {
+                    clearAuthStorage()
+                    setUser(null)
+                    setError(mergeResult.message || 'Could not merge guest cart. Please try again.')
+                    return
+                }
+                navigate(redirectTo, { replace: true })
             }
         } catch (err) {
             const msg =
@@ -75,8 +139,12 @@ const Login = () => {
         <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-900 via-slate-950 to-slate-900 px-4">
             <div className="w-full max-w-md">
                 <div className="mb-6 text-center">
-                    <h1 className="text-3xl font-bold tracking-tight text-white">Welcome back</h1>
-                    <p className="mt-2 text-sm text-slate-300">Sign in to view your orders and account.</p>
+                    <h1 className="text-3xl font-bold tracking-tight text-white">
+                        {isAdminLogin ? 'Admin login' : 'Welcome back'}
+                    </h1>
+                    <p className="mt-2 text-sm text-slate-300">
+                        {isAdminLogin ? 'Sign in to manage the admin panel.' : 'Sign in to view your orders and account.'}
+                    </p>
                 </div>
 
                 <div className="rounded-2xl border border-white/15 bg-white/10 p-6 shadow-2xl">
@@ -128,12 +196,21 @@ const Login = () => {
                         </button>
                     </form>
 
-                    <p className="mt-4 text-center text-xs text-slate-300">
-                        New here?{' '}
-                        <Link to="/register" className="font-semibold text-blue-300 hover:text-blue-200">
-                            Create an account
-                        </Link>
-                    </p>
+                    {isAdminLogin ? (
+                        <p className="mt-4 text-center text-xs text-slate-300">
+                            Customer?{' '}
+                            <Link to="/login" className="font-semibold text-blue-300 hover:text-blue-200">
+                                Go to user login
+                            </Link>
+                        </p>
+                    ) : (
+                        <p className="mt-4 text-center text-xs text-slate-300">
+                            New here?{' '}
+                            <Link to="/register" state={{ from: redirectTo }} className="font-semibold text-blue-300 hover:text-blue-200">
+                                Create an account
+                            </Link>
+                        </p>
+                    )}
                 </div>
             </div>
         </div>

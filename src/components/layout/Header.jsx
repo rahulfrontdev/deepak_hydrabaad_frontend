@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { LayoutDashboard } from 'lucide-react'
+import CategoryNavTree from './CategoryNavTree'
 import { useCart } from '../../context/CartContext.jsx'
 import { useAuth } from '../../context/AuthContext.jsx'
+import useCategoryNavigation from '../../hooks/useCategoryNavigation'
 
 const IconUser = () => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
@@ -58,13 +60,15 @@ const Header = () => {
   }
 
   const { cartCount } = useCart()
-  const { isAdmin } = useAuth()
+  const { isAdmin, user, logout } = useAuth()
   const [showScrollNav, setShowScrollNav] = useState(false)
-  const scrollNavJewelleryRef = useRef(null)
+  const scrollNavDetailsRefs = useRef({})
+  const categoryNavigation = useCategoryNavigation()
 
   useEffect(() => {
-    const el = scrollNavJewelleryRef.current
-    if (el) el.open = false
+    Object.values(scrollNavDetailsRefs.current).forEach((el) => {
+      if (el) el.open = false
+    })
   }, [location.pathname, location.search])
 
   useEffect(() => {
@@ -116,6 +120,13 @@ const Header = () => {
     }
   }
 
+  const onLogoutClick = () => {
+    const shouldLogout = window.confirm('Are you sure you want to logout?')
+    if (!shouldLogout) return
+    logout()
+    navigate('/login', { replace: true })
+  }
+
   return (
     <>
       <header className="site-header">
@@ -150,25 +161,25 @@ const Header = () => {
           </div>
 
           <div className="site-header__actions">
+            {user && (
+              <div className="hidden md:flex items-center gap-2 mr-1">
+                <span className="text-xs font-semibold text-slate-700 max-w-[120px] truncate">
+                  Hi, {user?.name || 'User'}
+                </span>
+                <button
+                  type="button"
+                  onClick={onLogoutClick}
+                  className="rounded-md border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Logout
+                </button>
+              </div>
+            )}
             {isAdmin && (
               <Link to="/admin" className="site-header__icon-link" aria-label="Admin dashboard" title="Admin">
                 <LayoutDashboard size={20} strokeWidth={1.75} />
               </Link>
             )}
-            {/* {user && (
-              <button
-                type="button"
-                onClick={() => {
-                  logout()
-                  navigate('/login', { replace: true })
-                }}
-                className="site-header__icon-link"
-                aria-label="Log out"
-                title="Log out"
-              >
-                <span className="text-[11px] font-bold tracking-tight">Exit</span>
-              </button>
-            )} */}
             <Link to="/account" className="site-header__icon-link" aria-label="Account">
               <IconUser />
             </Link>
@@ -207,26 +218,50 @@ const Header = () => {
                 Products
               </Link>
 
-              <details ref={scrollNavJewelleryRef} className="scroll-primary-nav__details">
-                <summary className="scroll-primary-nav__summary whitespace-nowrap px-2 py-1 text-sm text-slate-900 hover:opacity-90">
-                  Jewellery ▾
-                </summary>
-                <div className="scroll-primary-nav__dropdown-panel">
-                  <Link to="/category/jewellery/rings">Rings</Link>
-                  <Link to="/category/jewellery/necklace">Necklace</Link>
-                  <Link to="/category/jewellery/earrings">Earrings</Link>
-                </div>
-              </details>
-
-              <Link to="/category/bags" className="whitespace-nowrap px-2 py-1 text-sm text-slate-900 hover:opacity-90">
-                Bags
-              </Link>
-              <Link to="/category/fashion" className="whitespace-nowrap px-2 py-1 text-sm text-slate-900 hover:opacity-90">
-                Accessories
-              </Link>
+              {categoryNavigation.map((category) =>
+                category.children.length > 0 ? (
+                  <details
+                    key={category.id}
+                    ref={(el) => {
+                      scrollNavDetailsRefs.current[category.id] = el
+                    }}
+                    className="scroll-primary-nav__details"
+                  >
+                    <summary className="scroll-primary-nav__summary whitespace-nowrap px-2 py-1 text-sm text-slate-900 hover:opacity-90">
+                      {category.name} ▾
+                    </summary>
+                    <div className="scroll-primary-nav__dropdown-panel">
+                      <Link to={category.to}>All {category.name}</Link>
+                      <CategoryNavTree nodes={category.children} />
+                    </div>
+                  </details>
+                ) : (
+                  <Link
+                    key={category.id}
+                    to={category.to}
+                    className="whitespace-nowrap px-2 py-1 text-sm text-slate-900 hover:opacity-90"
+                  >
+                    {category.name}
+                  </Link>
+                )
+              )}
             </div>
 
             <div className="scroll-primary-nav__actions">
+              {user && (
+                <div className="hidden md:flex items-center gap-2 mr-1">
+                  <span className="text-xs font-semibold text-slate-700 max-w-[120px] truncate">
+                    {user?.name || user?.fullName || 'User'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={onLogoutClick}
+                    className="rounded-md border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Logout
+                  </button>
+                </div>
+              )}
               {isAdmin && (
                 <Link
                   to="/admin"

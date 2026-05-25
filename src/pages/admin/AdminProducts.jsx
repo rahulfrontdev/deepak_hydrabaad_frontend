@@ -10,19 +10,43 @@ import {
   adminUpdateProduct,
 } from "../../api/adminApi";
 
+function formatProductSaveError(error) {
+  const d = error?.response?.data
+  if (typeof d === "string" && d.trim()) return d.trim()
+  if (typeof d?.message === "string" && d.message.trim()) return d.message.trim()
+  if (typeof d?.error === "string" && d.error.trim()) return d.error.trim()
+  if (Array.isArray(d?.errors)) {
+    const parts = d.errors
+      .map((e) => (typeof e === "string" ? e : e?.msg || e?.message))
+      .filter(Boolean)
+    if (parts.length) return parts.join("\n")
+  }
+  const st = error?.response?.status
+  if (st === 401) return "Unauthorized (401). Log in again — admin JWT required for POST /products."
+  if (st === 403) return "Forbidden (403). Your account must have role: admin."
+  if (st === 404)
+    return "Not found (404). Ensure VITE_API_BASE_URL is the API root with /api (e.g. http://localhost:8000/api)."
+  if (error?.message === "Failed to fetch" || error?.name === "TypeError")
+    return "Network error — is the API running? Check CORS and VITE_API_BASE_URL in .env."
+  return error?.message || "Failed to save product. Please try again."
+}
+
 const initialFormState = {
   name: "",
   category: "",
   subcategory: "",
   colour: "",
   price: "",
-  specialOfferPrice: "",
   description: "",
   qty: "",
   gstRate: "",
+  imageUrl: "",
   image: null,
   extraImages: [],
 };
+
+const MAX_EXTRA_IMAGES = 8;
+const DEFAULT_GST_RATES = [3, 12, 18];
 
 const AdminProducts = () => {
   const [products, setProducts] = useState([]);
@@ -71,10 +95,15 @@ const AdminProducts = () => {
   const loadGstRates = async () => {
     try {
       const response = await adminFetchProductGstRates();
-      setGstRates(response?.data?.rates || []);
+      const raw =
+        response?.data?.rates ??
+        response?.data?.data?.rates ??
+        (Array.isArray(response?.data) ? response.data : null);
+      const rates = Array.isArray(raw) ? raw.map((n) => Number(n)).filter((n) => Number.isFinite(n)) : [];
+      setGstRates(rates.length ? rates : DEFAULT_GST_RATES);
     } catch (error) {
       console.error("Error fetching GST rates:", error);
-      setGstRates([]);
+      setGstRates(DEFAULT_GST_RATES);
     }
   };
 
@@ -128,10 +157,13 @@ const AdminProducts = () => {
         subcategory: subcategoryId,
         colour: product?.colour || "",
         price: product?.price?.toString?.() || "",
-        specialOfferPrice: product?.specialOfferPrice?.toString?.() || "",
         description: product?.description || "",
         qty: product?.qty?.toString?.() || "0",
         gstRate: product?.gstRate?.toString?.() || "",
+        imageUrl: (() => {
+          const u = product?.imageUrl || (typeof product?.image === "string" ? product.image : "");
+          return typeof u === "string" ? u.trim() : "";
+        })(),
         image: null,
         extraImages: [],
       });
@@ -154,7 +186,8 @@ const AdminProducts = () => {
       return;
     }
     if (name === "extraImages") {
-      setProductForm((prev) => ({ ...prev, extraImages: Array.from(files || []) }));
+      const arr = Array.from(files || []).slice(0, MAX_EXTRA_IMAGES);
+      setProductForm((prev) => ({ ...prev, extraImages: arr }));
       return;
     }
 
@@ -168,8 +201,20 @@ const AdminProducts = () => {
   };
 
   const validateForm = () => {
-    if (!productForm.name || !productForm.category) return false;
-    if (!productForm.price || !productForm.gstRate) return false;
+    if (!productForm.name?.trim() || !productForm.category) return false;
+
+    const priceNum = Number(productForm.price);
+    if (!Number.isFinite(priceNum) || priceNum < 0) {
+      alert("Price must be a number ≥ 0.");
+      return false;
+    }
+
+    const gstVal = Number(productForm.gstRate);
+    const allowedGst = (gstRates.length ? gstRates : DEFAULT_GST_RATES).map((r) => Number(r));
+    if (!productForm.gstRate || !allowedGst.includes(gstVal)) {
+      alert(`GST rate must be one of: ${allowedGst.join(", ")}.`);
+      return false;
+    }
 
     const selectedCategoryExists = categories.some(
       (cat) => (cat?._id || cat?.id) === productForm.category
@@ -179,54 +224,58 @@ const AdminProducts = () => {
       return false;
     }
 
-    if (subcategories.length > 0) {
-      if (!productForm.subcategory) {
-        alert("Please select subcategory.");
-        return false;
-      }
+    if (productForm.subcategory?.trim()) {
       const selectedSubcategoryExists = subcategories.some(
         (sub) => (sub?._id || sub?.id) === productForm.subcategory
       );
       if (!selectedSubcategoryExists) {
-        alert("Selected subcategory is invalid for this category. Please reselect.");
+        alert("Selected subcategory is invalid for this category. Please reselect or clear it.");
         return false;
       }
     }
 
-    const price = Number(productForm.price);
-    const specialOfferPrice = Number(productForm.specialOfferPrice || 0);
-    if (Number.isNaN(price) || price <= 0) return false;
-    if (productForm.specialOfferPrice && specialOfferPrice > price) {
-      alert("Special offer price must be less than or equal to price.");
+    const allowedMime = /^image\/(jpeg|pjpeg|png|webp)$/i;
+    const fileTypeOk = (f) => !f?.type || allowedMime.test(f.type);
+    if (productForm.image && !fileTypeOk(productForm.image)) {
+      alert("Main image must be jpeg, jpg, png, or webp.");
       return false;
     }
+    const badExtra = productForm.extraImages?.find((f) => !fileTypeOk(f));
+    if (badExtra) {
+      alert("Extra images must be jpeg, jpg, png, or webp only.");
+      return false;
+    }
+
     return true;
   };
 
   const buildFormData = () => {
     const formData = new FormData();
-    formData.append("name", productForm.name);
-    formData.append("category", productForm.category);
-    if (productForm.subcategory) {
-      formData.append("subcategory", productForm.subcategory);
+    formData.append("name", productForm.name.trim());
+    formData.append("category", String(productForm.category).trim());
+    const sub = String(productForm.subcategory || "").trim();
+    if (sub) {
+      formData.append("subcategory", sub);
     }
-    formData.append("colour", productForm.colour);
-    formData.append("price", productForm.price);
-    formData.append("description", productForm.description);
-    formData.append("qty", productForm.qty || "0");
-    formData.append("gstRate", productForm.gstRate);
+    formData.append("colour", String(productForm.colour || "").trim());
+    formData.append("price", String(productForm.price).trim());
+    formData.append("description", String(productForm.description || "").trim());
+    formData.append("qty", productForm.qty !== "" && productForm.qty != null ? String(productForm.qty) : "0");
+    formData.append("gstRate", String(productForm.gstRate));
 
-    if (productForm.specialOfferPrice) {
-      formData.append("specialOfferPrice", productForm.specialOfferPrice);
-    }
     if (productForm.image) {
       formData.append("image", productForm.image);
+    } else {
+      const url = String(productForm.imageUrl || "").trim();
+      if (url) {
+        formData.append("imageUrl", url);
+      }
     }
-    if (productForm.extraImages?.length) {
-      productForm.extraImages.forEach((file) => {
-        formData.append("images", file);
-      });
-    }
+
+    const extras = Array.isArray(productForm.extraImages) ? productForm.extraImages : [];
+    extras.slice(0, MAX_EXTRA_IMAGES).forEach((file) => {
+      formData.append("images", file);
+    });
 
     return formData;
   };
@@ -249,14 +298,18 @@ const AdminProducts = () => {
 
       setIsModalOpen(false);
       resetForm();
-      await loadProducts();
     } catch (error) {
       console.error("Error saving product:", error);
-      const apiMessage =
-        error?.response?.data?.message || "Failed to save product. Please try again.";
-      alert(apiMessage);
+      alert(formatProductSaveError(error));
+      return;
     } finally {
       setSaving(false);
+    }
+
+    try {
+      await loadProducts();
+    } catch (e) {
+      console.error("Error refreshing product list:", e);
     }
   };
 
@@ -327,11 +380,6 @@ const AdminProducts = () => {
                     <p className="text-xs text-gray-500">Subcategory: {subcategoryName}</p>
                     <p className="text-xs text-gray-500">GST: {item?.gstRate}%</p>
                     <p className="text-sm font-semibold mt-1">Rs. {item?.price}</p>
-                    {item?.specialOfferPrice && (
-                      <p className="text-xs text-emerald-600">
-                        Offer: Rs. {item?.specialOfferPrice}
-                      </p>
-                    )}
                   </div>
 
                   <div className="flex gap-2 mt-3">
@@ -374,6 +422,7 @@ const AdminProducts = () => {
               </button>
             </div>
 
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <input
                 name="name"
@@ -413,8 +462,8 @@ const AdminProducts = () => {
                   {subcategoriesLoading
                     ? "Loading..."
                     : subcategories.length > 0
-                      ? "Select Subcategory *"
-                      : "No subcategory (optional)"}
+                      ? "Subcategory (optional)"
+                      : "No subcategories"}
                 </option>
                 {subcategories.map((sub) => (
                   <option key={sub._id || sub.id} value={sub._id || sub.id}>
@@ -428,14 +477,6 @@ const AdminProducts = () => {
                 value={productForm.price}
                 onChange={handleChange}
                 placeholder="Price *"
-                className="border border-gray-300 p-2 rounded-lg outline-none"
-              />
-              <input
-                type="number"
-                name="specialOfferPrice"
-                value={productForm.specialOfferPrice}
-                onChange={handleChange}
-                placeholder="Special Offer Price"
                 className="border border-gray-300 p-2 rounded-lg outline-none"
               />
               <input
@@ -469,10 +510,17 @@ const AdminProducts = () => {
                   className="w-full border border-gray-300 p-2 rounded-lg outline-none resize-none"
                 />
               </div>
+
               <div className="md:col-span-2">
                 <label className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-3 cursor-pointer hover:bg-gray-50 transition">
-                  <span className="text-gray-500 text-sm">Upload Main Product Image</span>
-                  <input type="file" name="image" onChange={handleChange} className="hidden" />
+                  <span className="text-gray-500 text-sm">Main image file (max 1) — jpeg, jpg, png, webp</span>
+                  <input
+                    type="file"
+                    name="image"
+                    accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                    onChange={handleChange}
+                    className="hidden"
+                  />
                 </label>
                 {existingImageUrl && !productForm.image && (
                   <p className="text-xs text-gray-500 mt-1">Using current image</p>
@@ -486,10 +534,11 @@ const AdminProducts = () => {
 
               <div className="md:col-span-2">
                 <label className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-3 cursor-pointer hover:bg-gray-50 transition">
-                  <span className="text-gray-500 text-sm">Upload Extra Images (multiple)</span>
+                  <span className="text-gray-500 text-sm">Extra images (up to {MAX_EXTRA_IMAGES}) — same types</span>
                   <input
                     type="file"
                     name="extraImages"
+                    accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
                     multiple
                     onChange={handleChange}
                     className="hidden"
@@ -502,7 +551,10 @@ const AdminProducts = () => {
                 )}
                 {productForm.extraImages.length > 0 && (
                   <p className="text-xs text-emerald-600 mt-1">
-                    {productForm.extraImages.length} extra image(s) selected successfully.
+                    {productForm.extraImages.length} extra image(s) selected
+                    {productForm.extraImages.length > MAX_EXTRA_IMAGES
+                      ? ` — only the first ${MAX_EXTRA_IMAGES} will be sent.`
+                      : "."}
                   </p>
                 )}
               </div>
@@ -533,4 +585,4 @@ const AdminProducts = () => {
   );
 };
 
-export default AdminProducts;
+export default AdminProducts
