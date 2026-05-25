@@ -1,257 +1,359 @@
-import { useMemo, useState } from 'react'
-import { MapPin, Plus } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { Filter, MapPin, Plus, Search, X } from 'lucide-react'
+import AddressCard from '../../components/address/AddressCard'
+import AddressDetailsModal from '../../components/address/AddressDetailsModal'
+import AddressForm from '../../components/address/AddressForm'
+import AddressSkeleton from '../../components/address/AddressSkeleton'
+import AddressToast from '../../components/address/AddressToast'
+import ConfirmModal from '../../components/address/ConfirmModal'
+import { useAuth } from '../../context/AuthContext.jsx'
+import useAddresses from '../../hooks/useAddresses'
 
-const STORAGE_KEY = 'account_addresses_v1'
+const emptyFilters = { city: '', state: '', search: '' }
 
-function loadAddresses() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
+function addressId(address) {
+  return address?._id || address?.id
 }
 
-function saveAddresses(addresses) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(addresses))
-  } catch {
-    // ignore
-  }
-}
-
-function emptyAddress() {
-  return {
-    id: `addr_${Date.now()}`,
-    fullName: '',
-    phone: '',
-    line1: '',
-    line2: '',
-    city: '',
-    state: '',
-    pincode: '',
-    isDefault: false,
-  }
+function cleanFilters(filters) {
+  return Object.fromEntries(
+    Object.entries(filters)
+      .map(([key, value]) => [key, value.trim()])
+      .filter(([, value]) => value)
+  )
 }
 
 const AccountMyAddressPage = () => {
-  const [addresses, setAddresses] = useState(() => loadAddresses())
-  const [form, setForm] = useState(() => emptyAddress())
+  const { isAuthenticated } = useAuth()
+  const {
+    actionLoading,
+    addresses,
+    createAddress,
+    deleteAddress,
+    error,
+    fetchAddresses,
+    loading,
+    meta,
+    refreshAddressCount,
+    setDefaultAddress,
+    totalAddressCount,
+    updateAddress,
+    viewAddress,
+  } = useAddresses()
+  const [filters, setFilters] = useState(emptyFilters)
+  const [activeFilters, setActiveFilters] = useState({})
+  const [isFormOpen, setIsFormOpen] = useState(false)
+  const [editingAddress, setEditingAddress] = useState(null)
+  const [detailAddress, setDetailAddress] = useState(null)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [serverErrors, setServerErrors] = useState({})
+  const [toast, setToast] = useState(null)
 
-  const hasDefault = useMemo(() => addresses.some((a) => a.isDefault), [addresses])
+  const canAddAddress = totalAddressCount < 3
+  const isEditing = Boolean(editingAddress)
+  const formMode = isEditing ? 'edit' : 'create'
+  const submittingForm = actionLoading === 'create' || actionLoading.startsWith('update:')
+  const hasActiveFilters = Object.keys(activeFilters).length > 0
 
-  const canAdd = useMemo(() => {
-    return form.fullName.trim().length >= 2 && form.phone.trim().length >= 8 && form.line1.trim().length >= 5
-  }, [form.fullName, form.phone, form.line1])
+  const countLabel = useMemo(() => {
+    const total = meta?.total ?? addresses.length
+    if (hasActiveFilters) return `${addresses.length} matched of ${totalAddressCount || total} saved`
+    return `${totalAddressCount || total} of 3 saved`
+  }, [addresses.length, hasActiveFilters, meta?.total, totalAddressCount])
 
-  const onAdd = () => {
-    if (!canAdd) return
-    const next = [
-      ...addresses,
-      {
-        ...form,
-        isDefault: !hasDefault,
-      },
-    ]
-    setAddresses(next)
-    saveAddresses(next)
-    setForm(emptyAddress())
+  const loadAddresses = useCallback(async () => {
+    await fetchAddresses({ page: 1, limit: 10, ...activeFilters })
+    await refreshAddressCount().catch(() => undefined)
+  }, [activeFilters, fetchAddresses, refreshAddressCount])
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    loadAddresses()
+  }, [isAuthenticated, loadAddresses])
+
+  const closeToast = useCallback(() => setToast(null), [])
+
+  const openCreateForm = () => {
+    if (!canAddAddress) return
+    setEditingAddress(null)
+    setServerErrors({})
+    setIsFormOpen(true)
   }
 
-  const setDefault = (id) => {
-    const next = addresses.map((a) => ({ ...a, isDefault: String(a.id) === String(id) }))
-    setAddresses(next)
-    saveAddresses(next)
+  const closeForm = () => {
+    setEditingAddress(null)
+    setServerErrors({})
+    setIsFormOpen(false)
   }
 
-  const onRemove = (id) => {
-    const next = addresses.filter((a) => String(a.id) !== String(id))
-    const normalized = next.map((a) => ({ ...a }))
-    // If removing default and none exists, set first as default.
-    if (normalized.length > 0 && !normalized.some((a) => a.isDefault)) {
-      normalized[0].isDefault = true
+  const handleFilterSubmit = (event) => {
+    event.preventDefault()
+    setActiveFilters(cleanFilters(filters))
+  }
+
+  const clearFilters = () => {
+    setFilters(emptyFilters)
+    setActiveFilters({})
+  }
+
+  const handleView = async (address) => {
+    const result = await viewAddress(addressId(address))
+    if (!result.ok) {
+      setToast({ type: 'error', message: result.message })
+      return
     }
-    setAddresses(normalized)
-    saveAddresses(normalized)
+    setDetailAddress(result.address)
+  }
+
+  const handleEdit = async (address) => {
+    setServerErrors({})
+    const result = await viewAddress(addressId(address))
+    if (!result.ok) {
+      setToast({ type: 'error', message: result.message })
+      return
+    }
+    setEditingAddress(result.address)
+    setIsFormOpen(true)
+  }
+
+  const handleSubmitAddress = async (payload) => {
+    setServerErrors({})
+    const result = isEditing
+      ? await updateAddress(addressId(editingAddress), payload)
+      : await createAddress(payload)
+
+    if (!result.ok) {
+      setServerErrors(result.fieldErrors || {})
+      setToast({ type: 'error', message: result.message })
+      return
+    }
+
+    setToast({
+      type: 'success',
+      message: isEditing ? 'Address updated successfully.' : 'Address added successfully.',
+    })
+    closeForm()
+  }
+
+  const handleSetDefault = async (address) => {
+    const result = await setDefaultAddress(addressId(address))
+    setToast({
+      type: result.ok ? 'success' : 'error',
+      message: result.ok ? 'Default address updated.' : result.message,
+    })
+  }
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    const result = await deleteAddress(addressId(deleteTarget))
+    setToast({
+      type: result.ok ? 'success' : 'error',
+      message: result.ok ? 'Address deleted successfully.' : result.message,
+    })
+    if (result.ok) setDeleteTarget(null)
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="rounded-2xl border border-neutral-200 bg-white p-8 text-center shadow-sm">
+        <MapPin className="mx-auto mb-3 text-neutral-400" size={32} />
+        <h2 className="text-lg font-semibold text-neutral-900">Sign in to manage addresses</h2>
+        <p className="mt-2 text-sm text-neutral-600">Your saved delivery addresses are available after login.</p>
+        <Link
+          to="/login"
+          state={{ from: '/account/my-address' }}
+          className="mt-5 inline-flex rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
+        >
+          Login to continue
+        </Link>
+      </div>
+    )
   }
 
   return (
-    <div className="space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold text-neutral-900">My Address</h2>
-        <p className="mt-1 text-sm text-neutral-600">Add delivery locations for faster checkout.</p>
+    <div className="space-y-5">
+      <AddressToast toast={toast} onClose={closeToast} />
+
+      <div className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight text-neutral-950">My Address</h2>
+          <p className="mt-1 text-sm text-neutral-600">
+            Manage delivery locations and choose your default checkout address.
+          </p>
+          <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">{countLabel}</p>
+        </div>
+        <button
+          type="button"
+          onClick={openCreateForm}
+          disabled={!canAddAddress}
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300"
+        >
+          <Plus size={16} />
+          {canAddAddress ? 'Add New Address' : 'Maximum 3 addresses saved'}
+        </button>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[1fr_420px] lg:items-start">
-        <div className="space-y-3">
-          {addresses.length === 0 ? (
-            <div className="rounded-2xl border border-neutral-200 bg-white p-8 text-center shadow-sm">
-              <MapPin className="mx-auto mb-3 text-neutral-400" size={26} />
-              <p className="text-sm font-medium text-neutral-700">No addresses added.</p>
-              <p className="mt-1 text-xs text-neutral-500">Add one on the right.</p>
+      <form
+        onSubmit={handleFilterSubmit}
+        className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm"
+      >
+        <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-neutral-900">
+          <Filter size={16} className="text-neutral-500" />
+          Search and filter
+        </div>
+        <div className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+          <label className="text-sm">
+            <span className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Search</span>
+            <input
+              value={filters.search}
+              onChange={(event) => setFilters((prev) => ({ ...prev, search: event.target.value }))}
+              className="mt-1 w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+              placeholder="Search Hyderabad"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="text-xs font-semibold uppercase tracking-wide text-neutral-500">City</span>
+            <input
+              value={filters.city}
+              onChange={(event) => setFilters((prev) => ({ ...prev, city: event.target.value }))}
+              className="mt-1 w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+              placeholder="Hyderabad"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="text-xs font-semibold uppercase tracking-wide text-neutral-500">State</span>
+            <input
+              value={filters.state}
+              onChange={(event) => setFilters((prev) => ({ ...prev, state: event.target.value }))}
+              className="mt-1 w-full rounded-xl border border-neutral-200 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+              placeholder="Telangana"
+            />
+          </label>
+          <div className="flex items-end gap-2">
+            <button
+              type="submit"
+              className="inline-flex h-[42px] flex-1 items-center justify-center gap-2 rounded-xl bg-neutral-950 px-4 text-sm font-semibold text-white transition hover:bg-neutral-800 md:flex-none"
+            >
+              <Search size={15} />
+              Apply
+            </button>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={clearFilters}
+                className="inline-flex h-[42px] items-center justify-center rounded-xl border border-neutral-200 px-3 text-sm font-semibold text-neutral-700 transition hover:bg-neutral-50"
+                aria-label="Clear filters"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
+        </div>
+      </form>
+
+      {error && (
+        <div className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-700" role="alert">
+          {error}
+        </div>
+      )}
+
+      <div className="grid gap-5 lg:grid-cols-[1fr_440px] lg:items-start">
+        <section className="min-w-0 space-y-3">
+          {loading ? (
+            <AddressSkeleton />
+          ) : addresses.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-neutral-300 bg-white p-8 text-center shadow-sm">
+              <MapPin className="mx-auto mb-3 text-neutral-400" size={32} />
+              <h3 className="text-base font-semibold text-neutral-900">
+                {hasActiveFilters ? 'No addresses match your filters.' : 'No addresses saved yet.'}
+              </h3>
+              <p className="mt-2 text-sm text-neutral-600">
+                {hasActiveFilters
+                  ? 'Try another city, state, or search term.'
+                  : 'Add your first address to make checkout faster.'}
+              </p>
+              {!hasActiveFilters && canAddAddress && (
+                <button
+                  type="button"
+                  onClick={openCreateForm}
+                  className="mt-5 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
+                >
+                  Add address
+                </button>
+              )}
             </div>
           ) : (
-            addresses.map((a) => (
-              <div key={a.id} className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-sm font-semibold text-neutral-900">{a.fullName}</p>
-                      {a.isDefault && (
-                        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
-                          Default
-                        </span>
-                      )}
-                    </div>
-                    <p className="mt-2 text-sm text-neutral-600 line-clamp-3">
-                      {a.line1}
-                      {a.line2 ? `, ${a.line2}` : ''}
-                      {a.city ? `, ${a.city}` : ''}
-                      {a.state ? `, ${a.state}` : ''} {a.pincode ? a.pincode : ''}
-                    </p>
-                    <p className="mt-2 text-xs text-neutral-500">Phone: {a.phone}</p>
-                  </div>
-
-                  <div className="flex flex-col items-end gap-2">
-                    {!a.isDefault && (
-                      <button
-                        type="button"
-                        onClick={() => setDefault(a.id)}
-                        className="rounded-xl border border-blue-600/20 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
-                      >
-                        Set default
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => onRemove(a.id)}
-                      className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-700 transition hover:bg-neutral-50"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </div>
-              </div>
+            addresses.map((address) => (
+              <AddressCard
+                key={addressId(address)}
+                address={address}
+                busyAction={actionLoading}
+                onDelete={setDeleteTarget}
+                onEdit={handleEdit}
+                onSetDefault={handleSetDefault}
+                onView={handleView}
+              />
             ))
           )}
-        </div>
+        </section>
 
-        <aside className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="text-sm font-semibold text-neutral-900">Add new address</h3>
-            <Plus size={16} className="text-neutral-500" />
-          </div>
-
-          <div className="mt-4 space-y-4">
-            <div>
-              <label className="mb-1 block text-xs font-medium text-neutral-700" htmlFor="fullName">
-                Full name
-              </label>
-              <input
-                id="fullName"
-                value={form.fullName}
-                onChange={(e) => setForm((p) => ({ ...p, fullName: e.target.value }))}
-                className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                placeholder="Name"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-xs font-medium text-neutral-700" htmlFor="phone">
-                Phone
-              </label>
-              <input
-                id="phone"
-                value={form.phone}
-                onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))}
-                className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                placeholder="+91 99999 99999"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-xs font-medium text-neutral-700" htmlFor="line1">
-                Address line 1
-              </label>
-              <input
-                id="line1"
-                value={form.line1}
-                onChange={(e) => setForm((p) => ({ ...p, line1: e.target.value }))}
-                className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                placeholder="House no, Street, Area"
-              />
-            </div>
-
-            <div>
-              <label className="mb-1 block text-xs font-medium text-neutral-700" htmlFor="line2">
-                Address line 2 (optional)
-              </label>
-              <input
-                id="line2"
-                value={form.line2}
-                onChange={(e) => setForm((p) => ({ ...p, line2: e.target.value }))}
-                className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                placeholder="Landmark"
-              />
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-neutral-700" htmlFor="city">
-                  City
-                </label>
-                <input
-                  id="city"
-                  value={form.city}
-                  onChange={(e) => setForm((p) => ({ ...p, city: e.target.value }))}
-                  className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                  placeholder="City"
-                />
+        <aside className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm lg:sticky lg:top-4">
+          {isFormOpen ? (
+            <>
+              <div className="mb-4">
+                <h3 className="text-base font-semibold text-neutral-950">
+                  {isEditing ? 'Edit address' : 'Add new address'}
+                </h3>
+                <p className="mt-1 text-sm text-neutral-600">
+                  Fill all required fields. Backend validation messages appear below each field.
+                </p>
               </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-neutral-700" htmlFor="state">
-                  State
-                </label>
-                <input
-                  id="state"
-                  value={form.state}
-                  onChange={(e) => setForm((p) => ({ ...p, state: e.target.value }))}
-                  className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                  placeholder="State"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="mb-1 block text-xs font-medium text-neutral-700" htmlFor="pincode">
-                Pincode
-              </label>
-              <input
-                id="pincode"
-                value={form.pincode}
-                onChange={(e) => setForm((p) => ({ ...p, pincode: e.target.value }))}
-                className="w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                placeholder="Pincode"
+              <AddressForm
+                initialAddress={editingAddress}
+                mode={formMode}
+                serverErrors={serverErrors}
+                submitting={submittingForm}
+                onCancel={closeForm}
+                onSubmit={handleSubmitAddress}
               />
+            </>
+          ) : (
+            <div className="rounded-2xl bg-gradient-to-br from-blue-50 to-indigo-50 p-5">
+              <h3 className="text-base font-semibold text-neutral-950">Address rules</h3>
+              <ul className="mt-3 space-y-2 text-sm text-neutral-700">
+                <li>Users can save up to 3 addresses.</li>
+                <li>The first address becomes default automatically.</li>
+                <li>Only one address can be marked as default.</li>
+                <li>Use search, city, or state filters to find saved addresses.</li>
+              </ul>
+              <button
+                type="button"
+                onClick={openCreateForm}
+                disabled={!canAddAddress}
+                className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-neutral-300"
+              >
+                {canAddAddress ? 'Add New Address' : 'Address limit reached'}
+              </button>
             </div>
-
-            <button
-              type="button"
-              disabled={!canAdd}
-              onClick={onAdd}
-              className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:from-blue-700 hover:to-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Add address
-            </button>
-
-            <p className="text-xs text-neutral-500">
-              First address becomes default automatically.
-            </p>
-          </div>
+          )}
         </aside>
       </div>
+
+      {detailAddress && (
+        <AddressDetailsModal address={detailAddress} onClose={() => setDetailAddress(null)} />
+      )}
+
+      {deleteTarget && (
+        <ConfirmModal
+          title="Delete address?"
+          description={`This will remove ${deleteTarget.fullName || 'this address'} from your saved addresses.`}
+          confirmLabel="Delete address"
+          isSubmitting={actionLoading === `delete:${addressId(deleteTarget)}`}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={handleDelete}
+        />
+      )}
     </div>
   )
 }

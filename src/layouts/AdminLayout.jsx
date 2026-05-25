@@ -38,8 +38,20 @@ const AdminLayout = () => {
           <NavLink to="/admin/products" className={navLinkClass}>
             Products
           </NavLink>
-          <NavLink to="/admin/users" className={navLinkClass}>
+          {/* <NavLink to="/admin/users" className={navLinkClass}>
             Users
+          </NavLink> */}
+          <NavLink to="/admin/carousel" className={navLinkClass}>
+            Home Promotional
+          </NavLink>
+          <NavLink to="/admin/reels" className={navLinkClass}>
+            Reels
+          </NavLink>
+          <NavLink to="/admin/discounts" className={navLinkClass}>
+            Discounts
+          </NavLink>
+          <NavLink to="/admin/catalogs" className={navLinkClass}>
+            Catalogs
           </NavLink>
         </nav>
 

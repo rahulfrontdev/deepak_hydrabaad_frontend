@@ -1,107 +1,107 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { fetchReels } from '../../api/reelsApi'
 
-const EMBED_SCRIPT_SRC = 'https://www.instagram.com/embed.js'
-
-const DEFAULT_REELS = [
-    'https://www.instagram.com/reel/DXD3sXFEcU6/',
-    'https://www.instagram.com/reel/DVpYcjMEV0-/',
-]
-
-/** Instagram only replaces blockquotes after embed.js runs and Embeds.process() is called. */
-const processEmbeds = () => {
-    window.instgrm?.Embeds?.process()
+function normalizeReelList(payload) {
+  const root = payload?.data ?? payload
+  if (Array.isArray(root)) return root
+  if (Array.isArray(root?.reels)) return root.reels
+  if (Array.isArray(root?.data)) return root.data
+  if (Array.isArray(root?.items)) return root.items
+  return []
 }
 
-/** Match Instagram embed URLs (fixes pasted HTML with &amp; and missing query). */
-function toEmbedHref(raw) {
-    let s = String(raw).trim().replace(/&amp;/g, '&')
-    if (!s.includes('utm_source=ig_embed')) {
-        const base = s.split('?')[0].replace(/\/?$/, '/')
-        s = `${base}?utm_source=ig_embed&utm_campaign=loading`
+function pickId(reel) {
+  return reel?._id || reel?.id || reel?.reelUrl || reel?.embedUrl || reel?.title
+}
+
+const Insta = () => {
+  const [reels, setReels] = useState([])
+  const [status, setStatus] = useState('idle')
+
+  useEffect(() => {
+    let cancelled = false
+
+    const loadReels = async () => {
+      setStatus('loading')
+      try {
+        const { data } = await fetchReels()
+        if (!cancelled) {
+          setReels(normalizeReelList(data))
+          setStatus('succeeded')
+        }
+      } catch {
+        if (!cancelled) {
+          setReels([])
+          setStatus('failed')
+        }
+      }
     }
-    return s
-}
 
-/**
- * @param {object} props
- * @param {string[]} [props.permalinks] — Reel/post URLs to embed (default: both store reels).
- * @param {string} [props.permalink] — Single URL; if set, only this one is shown (overrides permalinks).
- */
-const Insta = ({ permalinks = DEFAULT_REELS, permalink }) => {
-    const hrefs = useMemo(() => {
-        if (permalink) return [toEmbedHref(permalink)]
-        const list = Array.isArray(permalinks) ? permalinks : [permalinks]
-        return list.map(toEmbedHref)
-    }, [permalink, permalinks])
+    loadReels()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
-    const embedKey = hrefs.join('|')
+  const activeReels = useMemo(
+    () =>
+      reels
+        .filter((reel) => reel?.isActive !== false && reel?.embedUrl)
+        .sort((a, b) => {
+          const orderA = Number.isFinite(Number(a?.displayOrder)) ? Number(a.displayOrder) : 9999
+          const orderB = Number.isFinite(Number(b?.displayOrder)) ? Number(b.displayOrder) : 9999
+          if (orderA !== orderB) return orderA - orderB
+          return String(a?.title || '').localeCompare(String(b?.title || ''))
+        }),
+    [reels]
+  )
 
-    useEffect(() => {
-        const runProcess = () => {
-            processEmbeds()
-            requestAnimationFrame(processEmbeds)
-        }
+  if (status === 'failed' || (status === 'succeeded' && activeReels.length === 0)) {
+    return null
+  }
 
-        if (window.instgrm?.Embeds) {
-            runProcess()
-            return undefined
-        }
-
-        let script = document.querySelector(`script[src="${EMBED_SCRIPT_SRC}"]`)
-
-        const onScriptLoad = () => {
-            runProcess()
-        }
-
-        if (!script) {
-            script = document.createElement('script')
-            script.src = EMBED_SCRIPT_SRC
-            script.async = true
-            script.onload = onScriptLoad
-            document.body.appendChild(script)
-        } else if (window.instgrm?.Embeds) {
-            onScriptLoad()
-        } else {
-            script.addEventListener('load', onScriptLoad, { once: true })
-        }
-
-        return undefined
-    }, [embedKey])
-
-    return (
-        <div className="flex w-full flex-wrap justify-center gap-6 overflow-x-auto px-2 py-6">
-            {hrefs.map((href) => (
-                <blockquote
-                    key={href}
-                    className="instagram-media"
-                    data-instgrm-captioned=""
-                    data-instgrm-permalink={href}
-                    data-instgrm-version="14"
-                    style={{
-                        background: '#FFF',
-                        border: 0,
-                        borderRadius: '3px',
-                        boxShadow:
-                            '0 0 1px 0 rgba(0,0,0,0.5), 0 1px 10px 0 rgba(0,0,0,0.15)',
-                        margin: '1px',
-                        maxWidth: '540px',
-                        minWidth: 'min(100%, 226px)',
-                        width: '100%',
-                        padding: 0,
-                    }}
-                >
-                    <a
-                        href={href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block p-4 text-center text-sm text-slate-600 no-underline"
-                    >
-                        View this post on Instagram
-                    </a>
-                </blockquote>
-            ))}
+  return (
+    <section className="px-3 py-8 sm:px-6">
+      <div className="mx-auto max-w-7xl">
+        <div className="mb-5 text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-neutral-500">
+            Instagram Reels
+          </p>
+          <h2 className="mt-2 text-2xl font-bold text-neutral-950 sm:text-3xl">
+            Watch Our Latest Reels
+          </h2>
         </div>
-    )
+
+        {status === 'loading' ? (
+          <p className="py-8 text-center text-sm text-neutral-500">Loading reels...</p>
+        ) : (
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {activeReels.map((reel) => (
+              <article
+                key={pickId(reel)}
+                className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm"
+              >
+                <iframe
+                  key={reel.embedUrl}
+                  src={reel.embedUrl}
+                  title={reel.title || 'Instagram reel'}
+                  className="h-[520px] w-full border-0"
+                  loading="lazy"
+                  allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
+                  allowFullScreen
+                />
+                {reel.title && (
+                  <div className="border-t border-neutral-100 px-4 py-3">
+                    <p className="text-sm font-semibold text-neutral-900">{reel.title}</p>
+                  </div>
+                )}
+              </article>
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  )
 }
 
 export default Insta

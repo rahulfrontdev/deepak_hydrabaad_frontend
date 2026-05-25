@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext.jsx'
+import { clearAuthStorage } from '../../utils/authStorage'
 
 /**
  * Renders children only when the logged-in user has role "admin".
@@ -10,10 +11,11 @@ const RequireAdmin = ({ children }) => {
   const location = useLocation()
 
   if (!user) {
-    return <Navigate to="/login" state={{ from: location }} replace />
+    return <Navigate to="/admin/login" state={{ from: location }} replace />
   }
   if (!isAdmin) {
-    return <Navigate to="/" replace />
+    clearAuthStorage()
+    return <Navigate to="/admin/login" replace />
   }
   return children
 }

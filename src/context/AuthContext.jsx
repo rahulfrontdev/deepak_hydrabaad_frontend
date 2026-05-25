@@ -1,5 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { clearAuthStorage } from '../utils/authStorage'
 
 const AuthContext = createContext(null)
 
@@ -21,12 +22,16 @@ export function isAdminRole(role) {
   return String(role ?? '').toLowerCase() === 'admin'
 }
 
+export function isCustomerRole(role) {
+  return String(role ?? '').toLowerCase() === 'customer'
+}
+
 export function AuthProvider({ children }) {
   const [user, setUserState] = useState(() => loadStoredUser())
 
   const setUser = useCallback((next) => {
     if (next == null) {
-      localStorage.removeItem(AUTH_USER_KEY)
+      clearAuthStorage()
       setUserState(null)
       return
     }
@@ -35,12 +40,12 @@ export function AuthProvider({ children }) {
   }, [])
 
   const logout = useCallback(() => {
-    localStorage.removeItem('token')
-    localStorage.removeItem(AUTH_USER_KEY)
+    clearAuthStorage()
     setUserState(null)
   }, [])
 
   const isAdmin = isAdminRole(user?.role)
+  const isCustomer = isCustomerRole(user?.role)
 
   const value = useMemo(
     () => ({
@@ -48,9 +53,10 @@ export function AuthProvider({ children }) {
       setUser,
       logout,
       isAdmin,
+      isCustomer,
       isAuthenticated: Boolean(user),
     }),
-    [user, setUser, logout, isAdmin]
+    [user, setUser, logout, isAdmin, isCustomer]
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

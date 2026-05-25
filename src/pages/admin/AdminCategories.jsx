@@ -2,9 +2,12 @@ import React, { useEffect, useState } from "react";
 import {
   adminCreateCategoryUpload,
   adminDeleteCategory,
+  adminDisableCategoryTree,
+  adminEnableCategoryTree,
   adminFetchCategoryChildren,
   adminFetchCategoryTree,
   adminFetchRootCategories,
+  adminUpdateCategory,
 } from "../../api/adminApi";
 
 const AdminCategories = () => {
@@ -21,6 +24,8 @@ const AdminCategories = () => {
   const [expandedNodes, setExpandedNodes] = useState({});
   const [childrenByParentId, setChildrenByParentId] = useState({});
   const [loadingChildrenByParentId, setLoadingChildrenByParentId] = useState({});
+  const [statusAction, setStatusAction] = useState({ id: "", type: "" });
+  const [editingCategoryId, setEditingCategoryId] = useState("");
 
   useEffect(() => {
     fetchAllCategories();
@@ -44,7 +49,7 @@ const AdminCategories = () => {
 
   const fetchAllCategories = async () => {
     try {
-      const response = await adminFetchCategoryTree();
+      const response = await adminFetchCategoryTree({ all: true });
       const treeData = response?.data?.data || [];
       setParentOptions(flattenCategoryTree(treeData));
     } catch (err) {
@@ -55,7 +60,7 @@ const AdminCategories = () => {
 
   const fetchRootCategories = async () => {
     try {
-      const response = await adminFetchRootCategories();
+      const response = await adminFetchRootCategories({ all: true });
       setCategories(response?.data?.data || []);
     } catch (err) {
       console.error(err);
@@ -64,12 +69,22 @@ const AdminCategories = () => {
   };
 
   const getCategoryId = (item) => item?._id || item?.id;
+  const isCategoryEnabled = (item) => {
+    if (typeof item?.status === "boolean") return item.status;
+    if (typeof item?.isActive === "boolean") return item.isActive;
+    if (typeof item?.enabled === "boolean") return item.enabled;
+    if (typeof item?.status === "string") {
+      const value = item.status.toLowerCase();
+      return value === "active" || value === "enabled" || value === "true";
+    }
+    return true;
+  };
 
   const loadChildCategories = async (parentId) => {
     if (!parentId) return [];
     setLoadingChildrenByParentId((prev) => ({ ...prev, [parentId]: true }));
     try {
-      const response = await adminFetchCategoryChildren(parentId);
+      const response = await adminFetchCategoryChildren(parentId, { all: true });
       const children = response?.data?.data || [];
       setChildrenByParentId((prev) => ({ ...prev, [parentId]: children }));
       return children;
@@ -107,6 +122,43 @@ const AdminCategories = () => {
     setCategory({ ...category, [name]: value });
   };
 
+  const resetCategoryForm = () => {
+    setCategory({
+      name: "",
+      parent: "",
+      description: "",
+      image: null,
+    });
+    setEditingCategoryId("");
+  };
+
+  const getParentId = (item) => {
+    const parent = item?.parent || item?.parentId;
+    if (!parent) return "";
+    if (typeof parent === "string") return parent;
+    if (typeof parent === "object") return parent?._id || parent?.id || "";
+    return "";
+  };
+
+  const openCreateModal = () => {
+    resetCategoryForm();
+    setIsOpen(true);
+  };
+
+  const openEditModal = (item) => {
+    const categoryId = getCategoryId(item);
+    if (!categoryId) return;
+
+    setEditingCategoryId(categoryId);
+    setCategory({
+      name: item?.name || "",
+      parent: getParentId(item),
+      description: item?.description || "",
+      image: null,
+    });
+    setIsOpen(true);
+  };
+
   const handleDeleteCategory = async (categoryId, categoryName) => {
     if (!categoryId) return;
     const isConfirmed = window.confirm(
@@ -129,6 +181,40 @@ const AdminCategories = () => {
     }
   };
 
+  const refreshCategoryData = async () => {
+    await fetchAllCategories();
+    await fetchRootCategories();
+    setExpandedNodes({});
+    setChildrenByParentId({});
+    setLoadingChildrenByParentId({});
+  };
+
+  const handleEnableTree = async (categoryId) => {
+    if (!categoryId) return;
+    try {
+      setStatusAction({ id: categoryId, type: "enable" });
+      await adminEnableCategoryTree(categoryId);
+      await refreshCategoryData();
+    } catch (error) {
+      console.error("Error enabling category tree:", error);
+    } finally {
+      setStatusAction({ id: "", type: "" });
+    }
+  };
+
+  const handleDisableTree = async (categoryId) => {
+    if (!categoryId) return;
+    try {
+      setStatusAction({ id: categoryId, type: "disable" });
+      await adminDisableCategoryTree(categoryId);
+      await refreshCategoryData();
+    } catch (error) {
+      console.error("Error disabling category tree:", error);
+    } finally {
+      setStatusAction({ id: "", type: "" });
+    }
+  };
+
   const handleSubmit = async () => {
     try {
       const formData = new FormData();
@@ -144,21 +230,17 @@ const AdminCategories = () => {
         formData.append("image", category.image);
       }
 
-      await adminCreateCategoryUpload(formData);
+      if (editingCategoryId) {
+        await adminUpdateCategory(editingCategoryId, formData);
+      } else {
+        await adminCreateCategoryUpload(formData);
+      }
+
       setIsOpen(false);
-      setCategory({
-        name: "",
-        parent: "",
-        description: "",
-        image: null,
-      });
-      await fetchAllCategories();
-      await fetchRootCategories();
-      setExpandedNodes({});
-      setChildrenByParentId({});
-      setLoadingChildrenByParentId({});
+      resetCategoryForm();
+      await refreshCategoryData();
     } catch (error) {
-      console.error("Error creating category:", error);
+      console.error("Error saving category:", error);
     }
   };
 
@@ -171,6 +253,13 @@ const AdminCategories = () => {
     const children = childrenByParentId[categoryId] || [];
     const imageHeightClass = level === 0 ? "h-44" : "h-36";
     const nestedOffset = Math.min(level * 16, 80);
+    const enabled = isCategoryEnabled(cat);
+    const isEnableLoading =
+      statusAction.id === categoryId && statusAction.type === "enable";
+    const isDisableLoading =
+      statusAction.id === categoryId && statusAction.type === "disable";
+    const isAnyStatusActionLoading =
+      statusAction.id === categoryId && statusAction.type !== "";
 
     return (
       <div key={`${categoryId}-${level}`} className="space-y-2">
@@ -204,6 +293,15 @@ const AdminCategories = () => {
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
+                    openEditModal(cat);
+                  }}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
                     handleDeleteCategory(categoryId, cat.name);
                   }}
                   disabled={deletingId === categoryId}
@@ -216,6 +314,37 @@ const AdminCategories = () => {
             {cat.description && (
               <p className="text-xs text-gray-500 mt-1 line-clamp-2">{cat.description}</p>
             )}
+            <div
+              className="flex flex-wrap gap-2 mt-3"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => handleEnableTree(categoryId)}
+                disabled={isAnyStatusActionLoading || enabled}
+                className={`text-xs px-2.5 py-1.5 rounded-lg transition ${enabled
+                  ? "bg-gray-200 text-gray-500 blur-[0.5px] cursor-not-allowed"
+                  : "bg-emerald-600 text-white hover:bg-emerald-700"
+                  } disabled:opacity-70`}
+              >
+                {isEnableLoading
+                  ? "Enabling..."
+                  : "Enable tree"}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDisableTree(categoryId)}
+                disabled={isAnyStatusActionLoading || !enabled}
+                className={`text-xs px-2.5 py-1.5 rounded-lg transition ${enabled
+                  ? "bg-amber-600 text-white hover:bg-amber-700"
+                  : "bg-gray-200 text-gray-500 blur-[0.5px] cursor-not-allowed"
+                  } disabled:opacity-70`}
+              >
+                {isDisableLoading
+                  ? "Disabling..."
+                  : "Disable tree"}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -243,7 +372,7 @@ const AdminCategories = () => {
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-800">Category Management</h2>
         <button
-          onClick={() => setIsOpen(true)}
+          onClick={openCreateModal}
           className="bg-gradient-to-r from-black to-gray-700 text-white px-4 py-2 rounded-lg text-sm shadow-md hover:scale-105 transition"
         >
           + Create Category
@@ -271,9 +400,14 @@ const AdminCategories = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
           <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6 transform transition-all scale-100 animate-fadeIn">
             <div className="flex justify-between items-center mb-5">
-              <h3 className="text-xl font-semibold text-gray-800">Create Category</h3>
+              <h3 className="text-xl font-semibold text-gray-800">
+                {editingCategoryId ? "Edit Category" : "Create Category"}
+              </h3>
               <button
-                onClick={() => setIsOpen(false)}
+                onClick={() => {
+                  setIsOpen(false);
+                  resetCategoryForm();
+                }}
                 className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-500"
               >
                 ✕
@@ -337,7 +471,10 @@ const AdminCategories = () => {
 
               <div className="flex justify-end gap-3 mt-4">
                 <button
-                  onClick={() => setIsOpen(false)}
+                  onClick={() => {
+                    setIsOpen(false);
+                    resetCategoryForm();
+                  }}
                   className="px-4 py-2 border rounded-lg"
                 >
                   Cancel
@@ -346,7 +483,7 @@ const AdminCategories = () => {
                   onClick={handleSubmit}
                   className="bg-black text-white px-4 py-2 rounded-lg"
                 >
-                  Save
+                  {editingCategoryId ? "Update" : "Save"}
                 </button>
               </div>
             </div>

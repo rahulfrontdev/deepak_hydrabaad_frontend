@@ -9,7 +9,7 @@ const SplashScreen = ({ exiting = false }) => {
       aria-label="Loading"
     >
       <img
-        src="/Themed_Logo.png"
+        src="/your Elegance Store (16).png"
         alt=""
         className="splash-screen__logo"
         onError={(e) => {
